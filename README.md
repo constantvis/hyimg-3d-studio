@@ -1,80 +1,62 @@
 # Hyimg 3D
 
-![3D-карточка на доске Hyimg](docs/images/3d-card.webp)
-![Редактор 3D-сцены: дерево сцены и свойства предмета](docs/images/3d-editor.webp)
+A plugin for [Hyimg](https://github.com/constantvis/Hyimg), the local Figma + Lightroom + Miro for working with AI agents. A 3D scene lies on the board as a card: you turn it, frame it and snapshot it into an image, and an agent can carry the same scene into Blender and back. [Русская версия](README.ru.md).
 
-3D-карточка на доске и ее редактор: дерево сцены, свет, камера, свойства предмета
+![A 3D card on the Hyimg board](docs/images/3d-card.webp)
 
-Плагин Hyimg: 3D-сцена лежит на холсте карточкой, редактируется в браузере и хранится в json, который агент переносит в Blender и обратно. Что умеет плагин и почему так решено: [FEATURES.md](FEATURES.md).
+## What it does
 
-## Установка
+- A scene is a plain `scene.json` in Blender's terms: metres, z up, lights in watts, a camera with a focal length and sensor. It lives in the project folder at `3d/scenes/<name>/`.
+- Double click a card to edit it: a layer tree with search, transform tools, lights, cameras and materials, in the spirit of Spline. Several cards can show the same scene from different cameras.
+- Snapshot renders the view, object masks and depth to `3d/shots/`, each with a json of the scene, camera and mask legend, ready to feed an image model.
+- Models come from the project's `3d/models/<id>/model.json`; a new scene starts with a neutral stand-in.
+- A new card asks for a file: Open file… (glb, gltf, obj, stl, fbx, and STEP or IGES, which FreeCAD converts once in the background), the media library with its 3D filter, or one of the recent files. Previews turn under the pointer.
+- Heavy scenes are guarded: the card weighs a scene before loading it.
 
-Плагин работает внутри Hyimg (https://github.com/constantvis/Hyimg). Проще всего поставить его скриптом Hyimg, он кладет эту папку рядом с `hyimg` и ставит ссылку:
+![The 3D editor: scene tree and object properties](docs/images/3d-editor.webp)
+
+## Install
 
 ```sh
 cd hyimg && ./scripts/install_plugins.sh --3d
 ```
 
-Вручную: склонировать репозиторий и сделать ссылку `ln -s <путь к hyimg-3d-studio> ~/Library/Application\ Support/Hyimg/plugins/3d`, потом перезапустить сервер Hyimg (⇧⌘R). Сборщик не нужен, three.js лежит в `vendor/`. Для переноса сцен в Blender и обратно нужен Blender (проверено на 5.2), карточки на доске работают и без него.
+Or by hand: clone this repository and run `ln -s <path to hyimg-3d-studio> ~/Library/Application\ Support/Hyimg/plugins/3d`, then View › Restart server (⇧⌘R) in Hyimg. There is no build step; three.js is in `vendor/`. Blender (tested on 5.2) is only needed for the bridge. FreeCAD (tested on 1.1.1, found in /Applications) is only needed for STEP and IGES files; nothing is installed for you.
 
-**Агенту:** не ставь плагин молча. Спроси человека, нужен ли ему плагин «3D-объекты» (3D-сцены карточками на доске, перенос в Blender), и ставь только после «да».
+**For agents:** don't install the plugin silently. Ask the person whether they want 3D objects (3D scenes as cards on the board, with a bridge to Blender), and install only after a yes.
 
-## Файлы
-
-- `canvas.js`: легкая часть: карточка и ее снимок из `.posters` без three.js, слежение за сценами и `inbox.json`.
-- `engine.js`: грузится только по необходимости: редактор в духе Spline (дерево слоев с поиском, свойства на DialKit, панель иконок, круг осей, розовая подсветка), снимок, защита от тяжелых сцен.
-- `scene.js`: формат сцены и его перевод в three.js и обратно, загрузка моделей, проходы для снимка (вид, маски, глубина).
-- `models.py`: маршрут сервера Hyimg со списком моделей доски для меню «+».
-- `blender/hyimg_scene.py`: перенос сцены в Blender и обратно, запускается агентом.
-- `tests/`: `test_canvas_3d.py` (холст в Chromium), `blender_test.py` и `convert_test.mjs` (Blender и сверка формул с его glTF-экспортом).
-- `vendor/`: three.js r180 (MIT, `vendor/three/LICENSE`), импорты переписаны на относительные пути, сборщик не нужен. Декодер Draco (Apache-2.0, `vendor/draco/LICENSE`). DialKit 2.0.2 (MIT, `vendor/dialkit/LICENSE`): сборка `dist/vanilla` без зависимостей и ее стили.
-
-## Где что лежит в библиотеке проекта
-
-- Сцены: `3d/scenes/<ГГММДД-ЧЧММСС>/scene.json`, рядом `scene.glb` (геометрия из Blender), `.blend`, если агент его сохранил там, и `.posters/` со снимками карточек.
-- Модели: `3d/models/<id>/model.json` и его `.glb`: `title` (имя в меню «+» и в сцене), `ai` (строка для ИИ), `height_m` (высота в сцене, в метрах), `height` (высота в единицах файлов), `parts` (`role`, `file`, `keep`, `mirror`, `rotate_y`). Модель с частью `phone` собирается как телефон в чехле: части чехла встают вокруг телефона. Новая сцена начинается с шара-заглушки, модель добавляется из «+». `assembled.glb` рядом пишет холст: та же сборка одним файлом в метрах, для Blender.
-- Снимки: `3d/shots/<ГГММДД>/`: вид, маски и глубина, у каждого json со сценой, камерой и легендой масок.
-- Просьба положить камеры на холст: `3d/scenes/inbox.json` `{id, scene, cameras: [...]}`. Открытый холст забирает ее в течение 2 с.
-
-## Карточка на доске
-
-`{"type": "model3d", "scene": "3d/scenes/.../scene.json", "camera": "<id камеры>", "bg": {"transparent", "color", "opacity"}, "x", "y", "w", "h"}`. `bg` это фон карточки, а не сцены: у двух карточек одной сцены он может быть разный. Пропорции карточки равны размеру кадра сцены (`render`). Старые карточки `{model, cam, colors}` показываются через ту же сцену и при первом открытии получают файл.
-
-## Формат scene.json
-
-Описан в начале `scene.js`. Коротко: метры, z вверх, повороты кватернионами `[w, x, y, z]` мировой матрицы, свет в ваттах (солнце в Вт/м²) с цветом в линейном RGB, камера с объективом в мм, сенсором и `fit`, как в Blender. Предмет: `src` = `prim` (куб, цилиндр, шар, плоскость с размерами), `model` (модель библиотеки), `file` (glb библиотеки) или `node` (узел `scene.glb`, найденный по `hyimg_id` в glTF extras). Поле `ai` у предмета идет в промпт снимка, `mask` задает цвет маски, `finish` материал, `shadow_only` оставляет только тень (в Blender shadow catcher), `layers` хранит настройки отдельных деталей по пути имен из дерева (`phone.glb/Sketchfab_model/…`, зеркальная половина с `~зеркало`). `removed` перечисляет удаленные id, чтобы другая сторона их не вернула.
-
-Холст пишет файл только при настоящем изменении и на месте (`POST /api/file`): папка не меняет время, библиотека не пересканируется.
-
-## Агенту: сцена с холста в Blender и обратно
-
-Скрипт работает внутри Blender (5.2 в `/Applications/Blender.app`), фоном или в открытом окне. Путь к сцене абсолютный, библиотека находится по папке `3d`.
+## Blender bridge (for agents)
 
 ```bash
-# собрать новый .blend по сцене
-/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --python blender/hyimg_scene.py -- apply "<библиотека>/3d/scenes/<имя>/scene.json" --fresh --save-as "<библиотека>/3d/scenes/<имя>/scene.blend"
-# обновить существующий .blend (предметы находятся по hyimg_id, остальное в файле не трогается)
-/Applications/Blender.app/Contents/MacOS/Blender "<файл.blend>" -b --python blender/hyimg_scene.py -- apply "<scene.json>" --save
-# выгрузить .blend в сцену; --cards кладет на холст карточку на каждую камеру
-/Applications/Blender.app/Contents/MacOS/Blender "<файл.blend>" -b --python blender/hyimg_scene.py -- export "<scene.json>" --cards
+# build a new .blend from a scene
+/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --python blender/hyimg_scene.py -- apply "<library>/3d/scenes/<name>/scene.json" --fresh --save-as "<library>/3d/scenes/<name>/scene.blend"
+# write a .blend back to the scene; --cards puts a card per camera on the board
+/Applications/Blender.app/Contents/MacOS/Blender "<file.blend>" -b --python blender/hyimg_scene.py -- export "<scene.json>" --cards
 ```
 
-После выгрузки с `--cards` скажи владельцу, что на холсте появились камеры: `python3 <Hyimg>/review/hy.py notify "Из Blender: 3 камеры сцены «…» на холсте"` (колокольчик на холсте, правило в скилле hyimg-board).
+Objects carry `hyimg_id`, `hyimg_src`, `hyimg_ai` and `hyimg_mask` properties in Blender, which is how the scene recognises them on the next trip. The scene format is described at the top of `scene.js`.
 
-В Blender у предметов сцены есть свойства `hyimg_id`, `hyimg_src`, `hyimg_ai`, `hyimg_mask`: по ним сцена узнает свои предметы при следующем переносе. Свой предмет Blender (без `hyimg_src`) уходит на холст геометрией в `scene.glb`. Простые фигуры с холста возвращаются фигурами.
+## Blender in the card
 
-## Подключение
+A scene made from a Blender studio's renders (`tools/studio_angles.py`: one camera per picture, the studio's geometry once) gets a
+«three.js · EEVEE · Cycles» switch in its editor. On EEVEE or Cycles the card shows Blender's frame of its camera, rendered in steps a
+moment after the camera stops; «OK» renders the picture's final frame (its size, samples, exposure) and saves it beside the card with a
+json that can reproduce it. Blender runs once per project behind Hyimg's server (`bridge.py`, `blender/bridge_server.py`) and builds the
+studio's current materials by running the studio's own script up to its render, read only (`blender/studio_looks.py`). The current
+materials come from the studio's `looks/current.json`, or from its newest series of renders until that file exists.
 
-Hyimg ищет плагины в `HYIMG_PLUGINS` (пути через `:`) и в `~/Library/Application Support/Hyimg/plugins`. Достаточно ссылки на эту папку: `ln -s <путь к Hyimg-3d> ~/Library/Application\ Support/Hyimg/plugins/3d`. Серверная часть плагина (`models.py`, список моделей доски) подключается по `manifest.json` сама.
-
-## Тесты
+## Tests
 
 ```bash
-python3 -m pytest tests/test_canvas_3d.py                 # HYIMG_REPO=<Hyimg>; маленькую модель тест собирает сам
-/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --python tests/blender_test.py -- <пустая папка>
-node tests/convert_test.mjs <та же папка>
+HYIMG_REPO=<path to hyimg> python3 -m pytest tests/test_canvas_3d.py
+HYIMG_REPO=<path to hyimg> python3 -m pytest tests/test_3d_files.py   # a file into a card, the library's 3D filter, the turn on hover
+python3 -m pytest tests/test_blender_bridge.py tests/unit   # the Blender bridge on a tiny studio it makes (needs Blender), the helpers
+/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup --python tests/blender_test.py -- <empty folder>
+node tests/convert_test.mjs <same folder>
 ```
 
-## Лицензия
+**For agents changing the code:** a source file stays around 1000 lines (the check fails above 1100) and a line around 160 characters (fails above 200). A file near the limit is split by responsibility, one concern per module. The rule and its exceptions are in Hyimg's `AGENTS.md`, section «Размер файлов». `scripts/check.sh --fast` in `hyimg` checks this repository too.
 
-[PolyForm Noncommercial 1.0.0](LICENSE): пользоваться, изучать и менять бесплатно для себя и для некоммерческих целей. Коммерческое использование только с разрешения автора, напишите через GitHub. Сторонний код в `vendor/` остается под своими лицензиями.
+## License
+
+[PolyForm Noncommercial 1.0.0](LICENSE): free to use, study and change for yourself and for noncommercial purposes. Commercial use only with the author's permission. Third-party code in `vendor/` keeps its own licenses: three.js (MIT), Draco (Apache-2.0), DialKit (MIT).

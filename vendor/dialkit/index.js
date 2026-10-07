@@ -3057,6 +3057,9 @@ function appendShortcut(label, shortcut, active2 = false, toggle = false) {
   label.append(element4("span", `dialkit-shortcut-pill${active2 ? " dialkit-shortcut-pill-active" : ""}`, toggle ? formatToggleShortcut(shortcut) : formatSliderShortcut(shortcut)));
 }
 function mountSlider(host, initial) {
+  // Hyimg patch (owner 2026-10-06: «why are the sliders everywhere not the same as in 3D»): the app's one slider (review/ui/slider.js) draws
+  // the control, fill and line from one geometry; DialKit keeps the value and the label. Without it (an older Hyimg) the original below runs.
+  if (typeof window !== "undefined" && window.hySlider && window.hySlider.dial) return window.hySlider.dial(host, initial, { appendShortcut });
   let props = initial;
   const wrapper = element4("div", "dialkit-slider-wrapper");
   const track = element4("div", "dialkit-slider");

@@ -11,8 +11,20 @@
 import * as THREE from "./vendor/three/build/three.module.js";
 import { OrbitControls } from "./vendor/three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "./vendor/three/examples/jsm/controls/TransformControls.js";
-import { SceneView, newDoc, tidy, stateKey, toV, fromV, look, lensFor, cameraBack, readBack, newId, ensureAssembled, MASKS, fileUrl, heavyText, layerPath, modelHeight } from "./scene.js";
+import { SceneView, newDoc, tidy, stateKey, toV, fromV, look, lensFor, cameraBack, readBack, newId, ensureAssembled, MASKS, fileUrl, heavyText, layerPath, modelHeight, loadGLB, LIMITS } from "./scene.js";
+import { readChosen, loadObject, toGlb, digest, extOf, stemOf, isCad, cadGlb } from "./loaders.js";   // a 3D file of any format into a scene (owner 2026-10-06)
 import { createDialKit, createDialRoot } from "./vendor/dialkit/index.js";   // DialKit 2.0.2 (MIT, Josh Puckett): the inspector's controls
+import { setT as sceneWords } from "./scene.js";
+import { translator } from "./lang.js";   // English or Russian, as the board is set (owner 2026-10-06)
+import { attachBlender, studioAngle, bridgeApi } from "./blender.js";   // a studio's scene in Blender: three.js · EEVEE · Cycles and «Render» on a plate at the card (owner 2026-10-06)
+import { initHistory, itemFields, remember, settle, undo, undoState, historyTab } from "./history.js";   // ⌘Z, ↶ ↷ and History (2026-10-07)
+import { initTools, tools } from "./tools.js";   // each tool its own drag, the camera on ⌥ / Space / the middle button (2026-10-07)
+import { initView, viewOf, sharedKey, putVersion, askCancel, cancelled, changedSince, originalCamera, syncCamera } from "./view.js";   // the card's view, Save, Cancel
+import { layout as layoutSecs, drag as dragSecs, fold as foldSecs, reset as resetSecs } from "./sections.js";   // the layer list's sections as one stack
+import { outSize, atLong, keepShape, ratioKey, reshape, PRESETS } from "./frame.js";   // the card's frame and output size, set in the Scene panel
+import { drawFrame, warmGhost } from "./ghost.js";   // the frame with its highlight: the pick seen whole through what is in front of it (2026-10-07)
+import { lightPane as lightPaneOf } from "./lights.js";   // a light's panel, its temperature and softness (2026-10-07)
+import { attachLook } from "./variants.js";   // «Свет и материалы»: the card's variant of light and materials, A/B (owner 2026-10-07)
 
 const TYPE = "model3d";
 const SHOTS = "3d/shots";
@@ -26,29 +38,42 @@ async function projectModels() {
     return r.ok ? ((await r.json()).models || []) : [];
   } catch (e) { return []; }
 }
-const CUBE = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3 4 7.5v9L12 21l8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/></svg>`;
+// names in English, shown through t() (lang.js)
 const ADD = [
-  ["box", "Куб"], ["cylinder", "Цилиндр"], ["sphere", "Шар"], ["plane", "Плоскость"],
-  ["area", "Свет-панель"], ["spot", "Прожектор"], ["point", "Лампа"], ["sun", "Солнце"], ["camera", "Камера"],
+  ["box", "Cube"], ["cylinder", "Cylinder"], ["sphere", "Sphere"], ["plane", "Plane"],
+  ["area", "Area light"], ["spot", "Spotlight"], ["point", "Point light"], ["sun", "Sun"], ["camera", "Camera"],
 ];
 const PRIM = { box: [0.1, 0.1, 0.1], cylinder: [0.08, 0.08, 0.2], sphere: [0.08, 0.08, 0.08], plane: [0.5, 0.5, 0] };
 const LIGHT_W = { area: 20, spot: 30, point: 10, sun: 3 };
-const LIGHT_NAMES = { area: "Свет-панель", spot: "Прожектор", point: "Лампа", sun: "Солнце" };
+const LIGHT_NAMES = { area: "Area light", spot: "Spotlight", point: "Point light", sun: "Sun" };   // through t()
 const SLOW_MS = 120, STOP_MS = 300, POSTER_SLOW_MS = 1200;   // a frame of the editor: lower the quality, then stop and ask; a poster: refresh rarely
 // the frame of a card: free, or locked to a ratio (width:height); the same choice as the bar the canvas shows over the card
-const FRAMES = ["Свободно", "1:1", "4:5", "5:4", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9"];
+const RATIOS = ["1:1", "4:5", "5:4", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9"];   // with t("Free") first in the list
 
 let HY, renderer;
+// the interface's words (owner 2026-10-06: «make 2 versions, Russian and English»): t is the plugin's (lang.js), K the labels of the
+// inspector's controls. DialKit shows a control's key as its label, so the panels' values are keyed by these words of the page's language
+// (a change of language reloads the page; nothing stores DialKit's values, the pull tool's settings are prefs m3.pull.*)
+let t = k => k, K = {};
+const LABELS = { pos: "Location, cm", rot: "Rotation, °", dist: "Distance, cm", az: "Azimuth, °", inc: "Inclination, °", roll: "Twist, °",
+  sensor: "Sensor, mm", fit: "Sensor fit", shiftX: "Shift X", shiftY: "Shift Y", near: "Clip start, cm", far: "Clip end, m", reset: "Reset",
+  color: "Color", material: "Material", visible: "Visible", resetLayer: "Reset layer", name: "Name", size: "Size, cm", diam: "Diameter",
+  height: "Height", scale: "Scale, %", shadow: "Shadow only", gen: "For generation", mask: "Mask", ai: "Prompt", del: "Delete", source: "Source",
+  type: "Type", cone: "Cone, °", coords: "Coordinates", move: "Move", lens: "Lens, mm", campos: "Camera position", cammore: "Camera: more",
+  showcard: "Make active", camera: "Camera", frame: "Frame", dolly: "Wide ↔ isometric", bg: "Background", transparent: "Transparent",
+  transparency: "Transparency, %", world: "World light", strength: "Strength", highlight: "Selection highlight", pull: "Pull tool",
+  pivot: "Pivot", gel: "Viscosity", newcam: "New camera from this view", allcams: "All cameras onto the canvas", original: "Original camera", syncscene: "Sync with the scene" };
 const SC = new Map();     // scene path -> {view, doc, raw, key, saving, timer}
 let live = null;          // the card being edited
 
 function ensureRenderer() {
   if (renderer) return renderer;
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });   // alpha: a card can be see-through
+  // alpha: a card can be see-through; stencil: the pick's ghost (ghost.js)
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true, stencil: true });
   renderer.setPixelRatio(1); renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.AgXToneMapping;
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   // the graphics card dropped the context (too much memory): everything waits, nothing is redrawn until it comes back
-  renderer.domElement.addEventListener("webglcontextlost", e => { e.preventDefault(); HY.toast("3D: видеокарта сбросила сцены, жду ее"); if (live) pause(live, 0, "Видеокарта сбросила сцену."); });
+  renderer.domElement.addEventListener("webglcontextlost", e => { e.preventDefault(); HY.toast(t("3D: the graphics card dropped the scenes, waiting for it")); if (live) pause(live, 0, t("The graphics card dropped the scene.")); });
   renderer.domElement.addEventListener("webglcontextrestored", () => { for (const e of SC.values()) e.view.envKey = ""; for (const p of SC.keys()) repaint(p, true); });
   return renderer;
 }
@@ -67,21 +92,23 @@ async function entry(path, doc) {
 async function refresh(path) {
   const e = SC.get(path); if (path.startsWith("legacy:")) return false;
   const r = await fetch(fileUrl(path) + `&t=${Date.now()}`, { cache: "no-store" });
-  if (!r.ok) throw new Error(`нет файла сцены ${path}`);
+  if (!r.ok) throw new Error(t("no scene file {path}", { path }));
   const raw = await r.text(); if (raw === e.raw || e.timer) return false;   // an edit waiting to be saved wins
   const doc = JSON.parse(raw); if (e.doc && (doc.rev || 0) < (e.doc.rev || 0)) return false;   // read before our last write landed: older
   e.raw = raw; e.doc = doc; e.key = stateKey(e.doc); await e.view.apply(e.doc);
   return true;
 }
 // the canvas writes only on a real change: what Blender or an agent wrote is not written back unchanged
-function save(path, now) {
+function save(path, now, force) {
   const e = SC.get(path); if (!e || path.startsWith("legacy:")) return;
+  // the studio writes its scene on «Save» only (owner 2026-10-07: Cancel leaves scene.json as it was, nothing written meanwhile)
+  if (!force && live && live.path === path) return;
   clearTimeout(e.timer); e.timer = null;
   if (!now) { e.timer = setTimeout(() => save(path, true), 300); return; }
   tidy(e.doc); const key = stateKey(e.doc); if (key === e.key) return;
   e.doc.rev = (e.doc.rev || 0) + 1; e.doc.by = "canvas"; e.doc.t = new Date().toISOString().slice(0, 19).replace("T", " ");
   const raw = JSON.stringify(e.doc, null, 1); e.key = key; e.raw = raw;
-  fetch(`/api/file?p=${encodeURIComponent(path)}`, { method: "POST", body: raw }).then(async r => { if (!r.ok) HY.toast("Сцена не сохранена: " + await r.text()); });
+  return fetch(`/api/file?p=${encodeURIComponent(path)}`, { method: "POST", body: raw }).then(async r => { if (!r.ok) HY.toast(t("Scene not saved: {e}", { e: await r.text() })); return r.ok; });
 }
 const scenePath = () => `${SCENES}/${new Date().toISOString().slice(2, 19).replace(/[-:]/g, "").replace("T", "-")}/scene.json`;
 
@@ -102,16 +129,29 @@ async function entryOf(id, it) { const p = keyOf(id, it); return p.startsWith("l
 // ---- the card at rest: the view of its camera as a picture
 // the card's still view, drawn with three.js when canvas.js finds the project's still missing or older than the scene; dest {path, ext}
 // is where it goes (<scene>/.posters/<card>-<view>.<ext>), so the next page load and anyone opening the project show it without this engine
+// The base scene of a card that has no file yet (owner 2026-10-06: «with the dark background it is simply invisible on the dark board; maybe add a
+// preview of the base scene, a landscape with a gradient as usual in 3D mode»): the stand-in on its floor under the key and fill lights, with a
+// vertical gradient behind them, so it reads on a dark board; the card's own still, drawn once like any other and kept in the scene's .posters.
+let BACKDROP = null;
+function backdrop() {
+  if (BACKDROP) return BACKDROP;
+  const c = document.createElement("canvas"); c.width = 4; c.height = 256; const g = c.getContext("2d"), grad = g.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, "#3d4455"); grad.addColorStop(0.55, "#7d8696"); grad.addColorStop(1, "#b9bfca");
+  g.fillStyle = grad; g.fillRect(0, 0, 4, 256);
+  BACKDROP = new THREE.CanvasTexture(c); BACKDROP.colorSpace = THREE.SRGBColorSpace; return BACKDROP;
+}
 export function renderPoster(el, it, id, dest) {
   const img = el.querySelector("img.m3"), badge = el.querySelector(".b3"); if (!img) return;
-  if (!img.src) badge.textContent = "3D · загрузка";
+  if (!img.src) badge.textContent = t("3D · loading");
   entryOf(id, it).then(e => {
     if (live && live.id === id) return;
     const old = el.querySelector(".h3"); if (old) old.remove();
     const s = Math.min(2, 900 / Math.max(it.w, it.h)), pw = Math.round(it.w * s), ph = Math.round(it.h * s);
-    const cam = e.view.camera(it.camera || e.doc.active_camera, pw, ph); cam.layers.set(0);
+    const cam = e.view.camera(it.camera || e.doc.active_camera, pw, ph, it.view); cam.layers.set(0);   // the card's own view wins (item.view)
     const bg = it.bg, see = bg && (bg.transparent || (bg.opacity ?? 100) < 100);
-    const t0 = performance.now(), hid = hideEditor(e); e.view.render(cam, pw, ph, "beauty", bg); hid();
+    const t0 = performance.now(), hid = hideEditor(e), plain = e.view.scene.background;
+    if (it.empty && !bg) e.view.scene.background = backdrop();   // the base scene's backdrop (the editor's own world colour is not touched)
+    try { e.view.render(cam, pw, ph, "beauty", bg); } finally { e.view.scene.background = plain; hid(); }
     const shot = see ? renderer.domElement.toDataURL("image/png") : renderer.domElement.toDataURL("image/jpeg", 0.9);   // a see-through card keeps its alpha
     img.src = shot; img._u = "";   // canvas.js shows the written file from now on
     // the file is made from this same picture, taken now: toBlob reads the canvas later in WebKit, by then the shared renderer has drawn
@@ -123,7 +163,7 @@ export function renderPoster(el, it, id, dest) {
     if (live) live.redraw();   // the renderer is shared: the card being edited gets its view back
   }).catch(err => {
     if (err.heavy) return heavyCard(el, it, id, err);
-    badge.textContent = "3D ⚠"; el.title = "сцена не загрузилась: " + err.message; console.error(err);
+    badge.textContent = "3D ⚠"; el.title = t("scene did not load: {e}", { e: err.message }); console.error(err);
   });
 }
 // a scene over the limits waits on its card for a yes
@@ -131,7 +171,7 @@ function heavyCard(el, it, id, err) {
   el.querySelector(".b3").textContent = "3D ⏸";
   if (el.querySelector(".h3")) return;
   const d = document.createElement("div"); d.className = "h3";
-  d.innerHTML = `<div>${heavyText(err.heavy)[0].toUpperCase() + heavyText(err.heavy).slice(1)}. Компьютер может подвиснуть.</div><button>Загрузить</button>`;
+  d.innerHTML = `<div>${heavyText(err.heavy)[0].toUpperCase() + heavyText(err.heavy).slice(1)}. ${t("The computer may freeze.")}</div><button>${t("Load")}</button>`;
   d.addEventListener("pointerdown", e => e.stopPropagation());
   d.querySelector("button").onclick = () => { allow(keyOf(id, it)); d.remove(); };
   el.appendChild(d);
@@ -161,78 +201,67 @@ export async function refreshScene(path) {
 }
 export async function placeCardsFor(path, ids) { const e = await entry(path); return placeCards(path, e, ids); }
 export const isLive = id => !!live && (id === undefined || live.id === id);
+export const histInfo = () => live && { hi: live.hi, steps: live.hist.map(h => h.label), pressed: live.pressed, waiting: !!live.hmT || !!live.hmWhat };   // for the tests
+// for the tests: which tool the editor is in, what its gizmo does, what is picked and what is under the mouse
+const nameOf = n => n ? (n.userData.id || n.name || true) : null;
+export const liveInfo = () => live && { id: live.id, tool: live.tool, mode: live.tc.mode, attached: !!live.tc.object, selected: nameOf(live.sel), hovered: nameOf(live.hov) };
 export const livePath = () => live ? live.path : null;
+// for the tests and a selection of many to come: the objects, lights or layers with these ids (a unit's id, or a node's name) are the
+// view's pick, the first one the panels'; and one frame of the editor drawn now, its time in ms
+export function liveSelect(ids) {
+  if (!live) return; const L = live, ns = [];
+  for (const k of ids) {
+    const u = L.view.units.get(k); let n = u ? u.obj : null;
+    if (!n) L.view.scene.traverse(x => { if (!n && x.name === k) n = x; });
+    if (n) ns.push(n);
+  }
+  pick(L, ns[0] || null, true); L.multi = ns.length > 1 ? ns : null; L.need();
+}
+export const liveFrame = () => { if (!live || !live.redraw) return null; const t0 = performance.now(); live.redraw(); return performance.now() - t0; };
 export const docOf = path => { const e = SC.get(path); return e && e.doc; };
 async function placeCards(path, e, ids) {
   const have = new Set(Object.values(HY.board.items).filter(it => it.type === TYPE && it.scene === path).map(it => it.camera));
   const todo = ids.filter(c => !have.has(c) && e.doc.cameras.some(x => x.id === c)); if (!todo.length) return [];
   const r = e.doc.render || { x: 1600, y: 2000 }, w = 420, h = Math.round(w * r.y / r.x), c = HY.viewCenter(), before = HY.snap(), out = [];
-  todo.forEach((cam, i) => { const id = HY.uid("m"); HY.board.items[id] = { type: TYPE, scene: path, camera: cam, x: Math.round(c.x - (todo.length * (w + 40)) / 2 + i * (w + 40)), y: Math.round(c.y - h / 2), w, h }; out.push(id); });
-  HY.commit(before, `3D: ${todo.length === 1 ? "карточка камеры" : todo.length + " карточки камер"}`); HY.select(out);
+  todo.forEach((cam, i) => { const id = HY.uid("m"); HY.board.items[id] = { type: TYPE, scene: path, camera: cam, view: viewOf(e.doc.cameras.find(x => x.id === cam)), x: Math.round(c.x - (todo.length * (w + 40)) / 2 + i * (w + 40)), y: Math.round(c.y - h / 2), w, h }; out.push(id); });   // its own view from the start
+  HY.commit(before, todo.length === 1 ? t("3D: camera card") : t("3D: {n} camera cards", { n: todo.length })); HY.select(out);
   return out;
 }
 
 // ---- the editor (owner 2026-10-03, after the demo «Hyimg 3D Studio»): the layers of the real files on the left, tabs on the right
-// (Объект, Свет, Камера, Фон) built with DialKit, tools under the card. The mouse stays an arrow. What is under it turns pink, the
-// pick is outlined in pink (variant A; B and C stay in the top bar until the owner chooses). A click picks an object, a click inside
-// the picked object picks the layer under the mouse; Esc climbs back up.
-const VARIANTS = { A: [1, 0, 0, 1], B: [0, 1, 1, 0], C: [1, 0, 0.5, 1] };   // hover fill, hover outline, pick fill, pick outline
-let marks = null;
-function markLayer() {   // a mask of the pick (red) and the hover (green), drawn over the view as pink fill or outline
-  if (marks) return marks;
-  const rt = new THREE.WebGLRenderTarget(1, 1), q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
-    transparent: true, depthTest: false, depthWrite: false, toneMapped: false,
-    uniforms: { mask: { value: rt.texture }, px: { value: new THREE.Vector2() }, col: { value: new THREE.Vector3(1, 0.31, 0.64) }, mode: { value: new THREE.Vector4() } },
-    vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }",
-    fragmentShader: `uniform sampler2D mask; uniform vec2 px; uniform vec3 col; uniform vec4 mode; varying vec2 vUv;
-      void main(){
-        vec4 m = texture2D(mask, vUv); float sn = 0.0, hn = 0.0;
-        for (int x = -2; x <= 2; x++) for (int y = -2; y <= 2; y++) { vec4 n = texture2D(mask, vUv + vec2(float(x), float(y)) * px); sn = max(sn, n.r); hn = max(hn, n.g); }
-        float a = max(max(m.g * mode.x * 0.42, m.r * mode.z * 0.38), max(hn * (1.0 - m.g) * mode.y * 0.7, sn * (1.0 - m.r) * mode.w));
-        gl_FragColor = vec4(col, a); }`,
-  }));
-  const sc = new THREE.Scene(); sc.add(q);
-  const mm = c => Object.assign(new THREE.MeshBasicMaterial({ color: c }), { toneMapped: false });
-  marks = { rt, q, sc, cam: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1), sel: mm(0xff0000), hov: mm(0x00ff00), both: mm(0xffff00), none: mm(0x000000) };
-  return marks;
-}
-const meshesOf = (L, n) => {
-  const out = []; if (!n) return out;
-  n.traverse(m => { if (m.isMesh && m.visible !== false) out.push(m); });
-  if (n.userData.kind === "light" && L.icons.get(n.userData.id)) out.push(L.icons.get(n.userData.id));
-  return out;
-};
-function drawMarks(L, W, H) {
-  const sel = meshesOf(L, L.sel), hov = L.hov === L.sel ? [] : meshesOf(L, L.hov);
-  if (!sel.length && !hov.length) return;
-  const M = markLayer(), helper = L.tc.getHelper(), was = helper.visible, keep = [];
-  helper.visible = false;
-  L.view.scene.traverse(m => { if (!m.isMesh) return; const s = sel.includes(m), h = hov.includes(m); keep.push([m, m.material]); m.material = s && h ? M.both : s ? M.sel : h ? M.hov : M.none; });
-  const tone = renderer.toneMapping, bg = L.view.scene.background; renderer.toneMapping = THREE.NoToneMapping; L.view.scene.background = null;
-  if (M.rt.width !== W || M.rt.height !== H) M.rt.setSize(W, H);
-  renderer.setRenderTarget(M.rt); renderer.setClearColor(0x000000, 1); renderer.clear(); renderer.render(L.view.scene, L.cam); renderer.setRenderTarget(null);
-  keep.forEach(([m, mt]) => { m.material = mt; }); helper.visible = was; renderer.toneMapping = tone; L.view.scene.background = bg; renderer.setClearColor(0x000000, 0);
-  M.q.material.uniforms.px.value.set(1 / W, 1 / H); M.q.material.uniforms.mode.value.fromArray(VARIANTS[L.variant] || VARIANTS.A);
-  renderer.autoClear = false; renderer.render(M.sc, M.cam); renderer.autoClear = true;
-}
+// (Объект, Свет, Камера, Фон) built with DialKit, tools under the card. The mouse stays an arrow. The pick and what is under the mouse
+// show whole through what stands in front of them, without an outline (ghost.js, owner 2026-10-07); the Scene panel's «Selection
+// highlight» can bring back the pink outline (the pick outlined, the hover filled). A click picks an object, a click inside the picked
+// object picks the layer under the mouse; Esc climbs back up.
 
+// the app's shared interface pieces, from Hyimg's review/ui (owner 2026-10-06: one UI system): the one slider (DialKit's sliders are drawn by
+// it), the editors' one icon family (icons.js), the one section splitter (split.js) and Photoshop's eye drag (eyedrag.js). An older
+// Hyimg without one keeps the plugin's own (without the eye drag, a click switches one row).
+const UI_JS = { slider: () => window.hySlider, icons: () => window.HY_TOOL_IC, split: () => window.hySplit, eyedrag: () => window.hyEyeDrag };
+const loadUI = name => UI_JS[name]() ? Promise.resolve() : (loadUI[name] = loadUI[name] || new Promise(ok => { const s = document.createElement("script"); s.src = `/ui/${name}.js`; s.onload = s.onerror = () => ok(); document.head.appendChild(s); }));
 async function goLive(id) {
+  await Promise.all(Object.keys(UI_JS).map(loadUI));
   if (live) stopLive();
   let it = HY.board.items[id]; const el0 = [...document.querySelectorAll(".plg")].find(x => x.dataset.id === id); if (!it || !el0) return;
-  try { await entryOf(id, it); } catch (err) { if (err.heavy) HY.toast("3D: " + heavyText(err.heavy) + ". Сначала «Загрузить» на карточке"); else HY.toast("3D: " + err.message); return; }
+  try { await entryOf(id, it); } catch (err) { if (err.heavy) HY.toast(t("3D: {why}. First “Load” on the card", { why: heavyText(err.heavy) })); else HY.toast("3D: " + err.message); return; }
   if (!it.scene) {   // an older card becomes a scene file
     const doc = legacyDoc(it), path = scenePath(), before = HY.snap();
     const e = await entry(path, doc); e.raw = ""; e.key = ""; save(path, true);
     Object.assign(it, { scene: path, camera: doc.active_camera }); delete it.model; delete it.cam; delete it.colors; SC.delete(`legacy:${id}`);
-    HY.commit(before, "3D: сцена сохранена в " + path);
+    HY.commit(before, t("3D: scene saved to {path}", { path }));
   }
-  it = HY.board.items[id];
+  it = HY.board.items[id]; delete it.empty;   // the person builds the scene by hand: the card does not ask for a file any more
   const el = [...document.querySelectorAll(".plg")].find(x => x.dataset.id === id), path = it.scene, e = await entry(path), view = e.view;
+  // the card is the truth for its view (owner 2026-10-07: «board был source of truth»): the studio opens on the card's camera (item.view),
+  // put into the scene in memory only; the file as it was is kept for «Cancel» and the scene's versions
+  const sceneOpen = clone(e.doc), rawOpen = await fetch(fileUrl(path) + `&t=${Date.now()}`, { cache: "no-store" }).then(r => r.ok ? r.text() : null).catch(() => null);
+  { const cid0 = it.camera || e.doc.active_camera; if (it.view && cid0) { e.doc.cameras = e.doc.cameras || []; let c = e.doc.cameras.find(x => x.id === cid0);
+    if (!c) e.doc.cameras.push(c = { id: cid0 }); Object.assign(c, clone(it.view)); await view.apply(e.doc); } }
   // each model of the scene gets its one-file copy for Blender (3d/models/<id>/assembled.glb), also when an agent put it in the file
   for (const m of new Set(e.doc.objects.filter(o => o.src && o.src.type === "model").map(o => o.src.model))) ensureAssembled(m).catch(() => {});
   ensureRenderer(); el.classList.add("plg-live"); document.body.classList.add("m3edit");
   if (HY.full) HY.full(true);   // the library folds while the editor is open (owner 2026-10-03), it comes back on «Готово»
-  const cvs = renderer.domElement; cvs.className = "m3live"; el.appendChild(cvs);
+  const cvs = renderer.domElement; cvs.className = "m3live"; cvs.style.zIndex = ""; el.appendChild(cvs);
   const cam = new THREE.PerspectiveCamera(); cam.layers.enable(1);
   const orbit = new OrbitControls(cam, cvs); orbit.enableDamping = false; orbit.screenSpacePanning = true; orbit.zoomSpeed = 0.6;
   const tc = new TransformControls(cam, cvs); tc.setSize(0.8); view.scene.add(tc.getHelper());
@@ -240,8 +269,8 @@ async function goLive(id) {
   // opening a pull ran twice, two strings and a double turn, and an old session's pick drew a second panel)
   const ac = new AbortController(), on = { signal: ac.signal };
   const startDoc = tidy(JSON.parse(JSON.stringify(e.doc)));   // what «Сбросить» takes things back to: the scene and the card at the opening
-  live = { id, el, e, path, view, cam, orbit, tc, ac, on, start: { doc: startDoc, key: stateKey(startDoc), item: JSON.parse(JSON.stringify(HY.board.items[id])) }, sel: null, hov: null, tool: "select", variant: HY.pref("m3.variant", "A"), open: new Set(), raw: false, tab: 0, kit: null,
-    icons: new Map(), before: HY.snap(), hist: [], hi: -1, busy: false, scale: 1, times: [], paused: false, allowSlow: false };
+  live = { id, el, e, path, view, cam, orbit, tc, ac, on, start: { doc: startDoc, key: stateKey(noUi(startDoc)), item: JSON.parse(JSON.stringify(HY.board.items[id])) }, sel: null, hov: null, tool: "select", hl: HY.pref("m3.hl", "ghost"), open: new Set(), raw: false, tab: 0, kit: null,
+    sceneOpen, rawOpen, icons: new Map(), before: HY.snap(), mark: HY.steps ?? -1, hist: [], hi: -1, pressed: false, busy: false, scale: 1, times: [], paused: false, allowSlow: false };
   const L = live, camId = () => HY.board.items[id].camera || e.doc.active_camera;
   L.camId = camId;
 
@@ -262,19 +291,36 @@ async function goLive(id) {
   const px = new Uint8Array(4);
   L.redraw = () => {
     if (L.paused || live !== L) return;
-    const [W, H] = size(), t0 = performance.now(); updateHelpers(L);
-    view.render(cam, W, H, "beauty", HY.board.items[id].bg); drawMarks(L, W, H); if (L.ui) L.ui.axes();
+    const [W, H] = size(), t0 = performance.now(), progs = renderer.info.programs.length; updateHelpers(L);
+    // with the interface hidden (⌘.) the view is the picture alone: no pink pick or hover marks, no gizmo, no light and camera icons
+    // (owner 2026-10-06: the model flashed pink on ⌘)
+    drawFrame(renderer, L, W, H, HY.board.items[id].bg, document.documentElement.classList.contains("hy-hideui"));
+    if (L.ui) L.ui.axes();
     const gl = renderer.getContext(); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);   // waits for the frame, so the time is the real one
-    guard(L, performance.now() - t0);
+    // a frame that built shaders (the first of a material, of the ghost) is no measure of the scene
+    if (renderer.info.programs.length === progs) guard(L, performance.now() - t0);
+    if (HY.drawn) HY.drawn(el);   // the board's looks follow each frame (the card's colour grade, canvas.js surface), out of the frame's timing
   };
   let rq = 0; L.need = () => { if (!rq) rq = requestAnimationFrame(() => { rq = 0; L.redraw(); }); };
   // after the file changed (undo, an agent's export): the camera, the icons, the pick if it still exists, the panels
   L.reload = () => { syncCam(); helpers(L); if (L.sel && !inScene(L.sel)) L.sel = null; if (L.hov && !inScene(L.hov)) L.hov = null; attach(L); L.ui.tree(); L.ui.panel(); L.redraw(); };
   L.changed = (what, immediate) => { save(path, immediate); remember(L, what); };
+  // one gesture is one step (owner 2026-10-07: ⌘Z in the studio): while a button is down (a slider dragged, the camera turned, an object
+  // moved) the changes wait, the step is taken when it is let go
+  document.addEventListener("pointerdown", () => { L.pressed = true; }, { capture: true, signal: ac.signal });
+  const letGo = () => { if (!L.pressed) return; L.pressed = false; if (L.hmWhat) { const w = L.hmWhat; L.hmWhat = null; remember(L, w); } };
+  for (const ev of ["pointerup", "pointercancel"]) addEventListener(ev, letGo, { capture: true, signal: ac.signal });
   L.rsI = setInterval(() => resetState(L), 400);   // the reset buttons follow every change, also while a slow editor is paused
   L.recam = () => { syncCam(); L.redraw(); };
   L.ui = buildUI(L);
-  syncCam(); helpers(L); L.redraw(); remember(L, "start");
+  try { L.look = attachLook(L, { HY, t, api: bridgeApi(PLUGIN) }); } catch (err) { console.error(err); }   // a studio's scene: light and materials
+  try { L.blender = attachBlender(L, { HY, t, plugin: PLUGIN }); } catch (err) { console.error(err); }   // only a scene with scene.studio gets it
+  L.bimg = el.querySelector(":scope > img.m3bimg");   // Blender's frame, when it is shown the view draws only the ghost over it
+  if (L.bimg) {
+    new MutationObserver(() => L.need()).observe(L.bimg, { attributes: true, attributeFilter: ["hidden", "src"] });
+    L.bimg.addEventListener("load", () => L.need(), L.on);
+  }
+  syncCam(); helpers(L); L.redraw(); remember(L, "start"); warmGhost(renderer, view, cam);
   L.ui.panel();   // the panel again now that the camera stands where it should (2026-10-04: «Положение камеры» showed 1 cm and zeros)
   HY.render();   // the board draws the frame bar and the edge handles of a card in its editor
   orbit.addEventListener("change", () => { if (L.roll) cam.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), L.roll)); cameraBack(e.doc, camId(), cam); L.need(); save(path); });
@@ -289,7 +335,7 @@ async function goLive(id) {
     ray.setFromCamera(new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1), cam);
     const locked = id => { const x = findAny(e.doc, id); return x && x.locked; };   // a locked thing is not picked in the frame, only in the tree
     const targets = [...L.icons.values()].filter(m => m.visible && !locked(m.userData.light || m.userData.cam));
-    for (const [uid, u] of view.units) if (u.kind === "object" && u.obj.visible && !locked(uid)) u.obj.traverse(m => { if (m.isMesh && m.visible) targets.push(m); });
+    for (const [uid, u] of view.units) if (u.kind === "object" && u.obj.visible && !locked(uid)) u.obj.traverseVisible(m => { if (m.isMesh) targets.push(m); });
     const h = ray.intersectObjects(targets, false)[0]; if (!h) return null;
     const o = h.object;
     if (o.userData.light) return view.units.get(o.userData.light).obj;
@@ -304,7 +350,7 @@ async function goLive(id) {
   }, L.on);
   cvs.addEventListener("pointerleave", () => { if (L.hov) { L.hov = null; L.ui.markTree(); L.need(); } }, L.on);
   cvs.addEventListener("pointerdown", ev => { down = [ev.clientX, ev.clientY]; }, L.on);
-  smartMove(L, cvs, ray);
+  tools(L, cvs, { hit, ray, pick: n => pick(L, n, true), unitOf, findAny, readBack }); smartMove(L, cvs, ray);   // tools.js first: it decides the drag
   cvs.addEventListener("pointerup", ev => { if (!down || Math.hypot(ev.clientX - down[0], ev.clientY - down[1]) > 4 || tc.dragging) return; pick(L, hit(ev), true); }, L.on);
   for (const ev of ["pointerdown", "dblclick", "wheel"]) L.ui.root.addEventListener(ev, x => x.stopPropagation());
 }
@@ -327,7 +373,7 @@ function picked(L) {
   return u === n ? { kind: "object", id: u.userData.id, node: n, unit: u } : { kind: "layer", id: u.userData.id, node: n, unit: u, path: layerPath(u, n) };
 }
 function pick(L, n, reveal) {
-  L.sel = n || null;
+  L.sel = n || null; L.lmSel = null;
   if (n && reveal) { let p = n.parent; while (p) { L.open.add(p.uuid); p = p.parent; } }
   attach(L); L.ui.tree(); L.ui.panel(); L.need();
   if (n && reveal) requestAnimationFrame(() => { const r = L.ui.root.querySelector(`[data-u="${n.uuid}"]`); if (r) r.scrollIntoView({ block: "nearest" }); });
@@ -341,14 +387,14 @@ function pick(L, n, reveal) {
 // sphere's edge it stays on the edge. The turn is counted from the pose at the press, nothing drifts. Touched at the very centre there
 // is nothing to turn about. «Ось» «Центр» turns it about its centre instead (its position does not change at all). «Вязкость» is the gel.
 const PULL = { gel: 4, pivot: "mirror" };
-const PIVOTS = [{ value: "mirror", label: "Зеркальная точка" }, { value: "center", label: "Центр" }];
+const PIVOTS = [{ value: "mirror", label: "Mirrored point" }, { value: "center", label: "Center" }];   // labels through t()
 function smartMove(L, cvs, ray) {
   let g = null, raf = 0;
   const at = ev => { const r = cvs.getBoundingClientRect(); ray.setFromCamera(new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1), L.cam); };
   cvs.addEventListener("pointerdown", ev => {   // capture: it runs before the camera's own handler, which it switches off for the drag
-    if (L.tool !== "smart" || ev.button !== 0) return;
+    if (L.tool !== "smart" || ev.button !== 0 || L.turning) return;
     at(ev);
-    const targets = []; for (const [uid, u] of L.view.units) { const x = findAny(L.e.doc, uid); if (u.kind === "object" && u.obj.visible && !(x && x.locked)) u.obj.traverse(m => { if (m.isMesh && m.visible) targets.push(m); }); }
+    const targets = []; for (const [uid, u] of L.view.units) { const x = findAny(L.e.doc, uid); if (u.kind === "object" && u.obj.visible && !(x && x.locked)) u.obj.traverseVisible(m => { if (m.isMesh) targets.push(m); }); }
     const h = ray.intersectObjects(targets, false)[0]; if (!h) return;
     const unit = unitOf(h.object), box = new THREE.Box3().setFromObject(unit), size = box.getSize(new THREE.Vector3()).length() / 2 || 0.05;
     L.orbit.enabled = false; cvs.setPointerCapture(ev.pointerId);
@@ -397,7 +443,7 @@ function smartMove(L, cvs, ray) {
 }
 
 function attach(L) {
-  const p = picked(L), ok = (p.kind === "object" || p.kind === "light") && ["translate", "rotate", "scale"].includes(L.tool) && !(p.kind === "light" && L.tool === "scale");
+  const p = picked(L), rec = p.id ? findAny(L.e.doc, p.id) : null, ok = (p.kind === "object" || p.kind === "light") && !(rec && rec.locked) && ["translate", "rotate", "scale"].includes(L.tool) && !(p.kind === "light" && L.tool === "scale");   // a locked thing keeps no gizmo
   if (ok) { L.tc.attach(p.unit); L.tc.setMode(L.tool); } else L.tc.detach();
 }
 function setTool(L, t) { L.tool = t; (L.ui.bar || L.ui.root).querySelectorAll("[data-tool]").forEach(b => b.classList.toggle("on", b.dataset.tool === t)); attach(L); L.need(); }
@@ -406,49 +452,61 @@ function setTool(L, t) { L.tool = t; (L.ui.bar || L.ui.root).querySelectorAll("[
 function guard(L, ms) {
   L.times.push(ms); if (L.times.length > 3) L.times.shift(); if (L.times.length < 3) return;
   const avg = L.times.reduce((a, b) => a + b, 0) / 3;
-  if (avg > SLOW_MS && L.scale > 0.34) { L.scale = L.scale > 0.6 ? 0.5 : 0.33; L.times = []; HY.toast(`3D: кадр считается ${Math.round(avg)} мс, предпросмотр стал грубее`); return; }
+  if (avg > SLOW_MS && L.scale > 0.34) { L.scale = L.scale > 0.6 ? 0.5 : 0.33; L.times = []; HY.toast(t("3D: a frame takes {ms} ms, the preview got coarser", { ms: Math.round(avg) })); return; }
   if (avg > STOP_MS && !L.allowSlow) pause(L, avg);
 }
 function pause(L, ms, why) {
   if (L.paused) return; L.paused = true;
   const d = document.createElement("div"); d.className = "h3 m3pause";
-  d.innerHTML = `<div>${why || `Сцена считается слишком медленно: ${Math.round(ms)} мс на кадр.`} Расчет остановлен, чтобы Hyimg не завис.</div><div><button data-go>Продолжить</button> <button data-stop>Закрыть</button></div>`;
+  d.innerHTML = `<div>${why || t("The scene renders too slowly: {ms} ms a frame.", { ms: Math.round(ms) })} ${t("Rendering stopped so that Hyimg does not hang.")}</div><div><button data-go>${t("Continue")}</button> <button data-stop>${t("Close")}</button></div>`;
   d.addEventListener("pointerdown", e => e.stopPropagation());
   d.querySelector("[data-go]").onclick = () => { d.remove(); L.paused = false; L.allowSlow = true; L.times = []; L.redraw(); };
   d.querySelector("[data-stop]").onclick = () => { d.remove(); stopLive(); };
   L.el.appendChild(d);
 }
 
-function stopLive() {
+// «Save» (keep) and «Cancel» (owner 2026-10-07: «вместо Done нужно Save, ну и Cancel тоже»). Save: the card takes its view (item.view, the
+// truth for what it shows), the scene file is written only when what the cards share changed (objects, lights, world, other cameras), its
+// before and after kept as versions so the board's undo and history bring the scene back with the card (sceneRev), and the session is
+// one step on the board. Cancel: the scene in memory, the card and the board as they were at the opening, and scene.json as it was
+function stopLive(keep = true) {
   if (!live) return;
-  const L = live; live = null;
-  save(L.path, true);
+  const L = live; settle(L);
+  const lost = !keep && changedSince(L), d = L.e.doc, cid = L.camId(), card = HY.board.items[L.id], cam = (d.cameras || []).find(x => x.id === cid);
+  let wrote = null;
+  if (keep && card && cam) card.view = viewOf(cam);
+  if (keep && sharedKey(d, cid) !== sharedKey(L.sceneOpen, cid)) wrote = save(L.path, true, true);
+  live = null;
   L.ac.abort();   // every listener this session put on the shared canvas
   clearInterval(L.rsI);
   if (L.themeObs) L.themeObs.disconnect();
-  if (L.kit) L.kit.destroy(); if (L.dk) L.dk.destroy();
+  if (L.kit) L.kit.destroy(); if (L.dk) L.dk.destroy(); if (L.blender) L.blender.dispose(); if (L.look) L.look.dispose();
   L.orbit.dispose(); L.tc.detach(); L.view.scene.remove(L.tc.getHelper()); L.tc.dispose();
   L.view.helpers.clear(); if (HY.dock) HY.dock(null); L.ui.root.remove(); L.unplace(); L.el.querySelectorAll(".m3pause").forEach(x => x.remove()); renderer.domElement.remove(); L.el.classList.remove("plg-live"); document.body.classList.remove("m3edit");
   if (HY.full) HY.full(false);
-  HY.commit(L.before, "3D: сцена сохранена"); HY.render();
+  if (!keep) return cancelled(L, lost);
+  // the scene's versions: the file at the opening and the one written now, named by their rev; every card of the scene says which it
+  // shows (sceneRev), the step's «before» the opening's, so ⌘Z on the board and a board version bring the scene back (canvas.js restored)
+  let before = L.before;
+  if (wrote) {
+    const rev0 = (L.sceneOpen && L.sceneOpen.rev) || 0, rev1 = d.rev, o = JSON.parse(before);
+    if (L.rawOpen != null) putVersion(L.path, rev0, L.rawOpen);
+    putVersion(L.path, rev1, L.e.raw);
+    for (const [k, x] of Object.entries(HY.board.items)) if (x.type === TYPE && x.scene === L.path) { x.sceneRev = rev1; if (o.items[k]) o.items[k].sceneRev = rev0; }
+    before = JSON.stringify(o);
+  }
+  // the session is one step on the board (owner 2026-10-07): the board's steps made while it was open (the card's camera, background,
+  // frame, a snapshot or a render beside it) give way to one, from the opening; nothing changed on the board, no step
+  if (HY.squash && L.mark >= 0) HY.squash(L.mark);
+  const was = JSON.parse(before), now = JSON.parse(HY.snap());
+  if (JSON.stringify([was.items, was.groups]) !== JSON.stringify([now.items, now.groups])) HY.commit(before, t("3D: scene saved")); else HY.render();
   // the board redraws a plugin's card only when its item changes, and edits live in the scene file: the cards of this scene are
   // redrawn here (2026-10-03: after «Готово» the card kept the view from before the edit)
   repaint(L.path, true);
 }
 
-// undo inside the editor: the scene file is not the board, so it keeps its own steps
-function remember(L, what) {
-  clearTimeout(L.hmT);
-  L.hmT = setTimeout(() => {
-    const s = JSON.stringify(L.e.doc); if (L.hist[L.hi] === s) return;
-    L.hist = L.hist.slice(0, L.hi + 1); L.hist.push(s); if (L.hist.length > 80) L.hist.shift(); L.hi = L.hist.length - 1;
-  }, what === "start" ? 0 : 250);
-}
-async function undo(L, dir) {
-  const i = L.hi + dir; if (i < 0 || i >= L.hist.length) return;
-  L.hi = i; L.e.doc = JSON.parse(L.hist[i]); await L.view.apply(L.e.doc); save(L.path, true); L.reload();
-}
-
+// the studio's steps and History are history.js; the card's view, «Save» and «Cancel» view.js (owner 2026-10-07)
+const noUi = d => { const c = Object.assign({}, d); delete c.ui; return c; };
 // light and camera icons: picked like objects, on layer 1, which only the editor camera sees
 function helpers(L) {
   const v = L.view, g = v.helpers; g.clear(); L.icons.clear();
@@ -484,38 +542,38 @@ const findAny = (doc, id) => { const k = kindOf(doc, id); return k ? doc[k].find
 
 async function addThing(L, what) {
   // a new thing stands beside what is there (right of it, on the floor), not inside it
-  const b = L.view.bounds, side = fromV(new THREE.Vector3(b.max.x, b.min.y, (b.min.z + b.max.z) / 2)), t = fromV(L.orbit.target);
+  const b = L.view.bounds, side = fromV(new THREE.Vector3(b.max.x, b.min.y, (b.min.z + b.max.z) / 2)), aim = fromV(L.orbit.target);
   const doc = L.e.doc, n = (base) => { let i = 1; while ([...doc.objects, ...doc.lights, ...doc.cameras].some(x => x.name === `${base} ${i}`)) i++; return `${base} ${i}`; };
   const id = newId();
   if (PRIM[what]) {
-    const s = PRIM[what].slice(); doc.objects.push({ id, name: n(ADD.find(a => a[0] === what)[1]), src: { type: "prim", shape: what, size: s }, loc: [side[0] + s[0] / 2 + 0.03, side[1], s[2] / 2], rot: [1, 0, 0, 0], scale: [1, 1, 1], color: "#b8b8b4", ai: "" });
+    const s = PRIM[what].slice(); doc.objects.push({ id, name: n(t(ADD.find(a => a[0] === what)[1])), src: { type: "prim", shape: what, size: s }, loc: [side[0] + s[0] / 2 + 0.03, side[1], s[2] / 2], rot: [1, 0, 0, 0], scale: [1, 1, 1], color: "#b8b8b4", ai: "" });
   } else if (what.startsWith("model:")) {   // a model of the project, picked in «+»: its name and its text for the AI come from model.json
-    const m = (await projectModels()).find(x => x.id === what.slice(6)); if (!m) { HY.toast("Модели больше нет в 3d/models"); return; }
+    const m = (await projectModels()).find(x => x.id === what.slice(6)); if (!m) { HY.toast(t("The model is no longer in 3d/models")); return; }
     doc.objects.push({ id, name: n(m.title || m.id), src: { type: "model", model: m.id }, loc: [side[0] + 0.07, side[1], modelHeight(m) / 2 + 0.0005], rot: [1, 0, 0, 0], scale: [1, 1, 1], ai: m.ai || "" });
-    ensureAssembled(m.id).catch(err => HY.toast("Модель для Blender не записана: " + err.message));
+    ensureAssembled(m.id).catch(err => HY.toast(t("Model for Blender not written: {e}", { e: err.message })));
   } else if (LIGHT_W[what]) {
     const p = fromV(L.cam.position.clone().add(new THREE.Vector3(0, 0.35, 0)).add(new THREE.Vector3(-0.25, 0, 0).applyQuaternion(L.cam.quaternion)));
-    doc.lights.push({ id, name: n(LIGHT_NAMES[what]), type: what, loc: p, rot: look(p, t), color: [1, 1, 1], power: LIGHT_W[what], size: what === "area" ? 0.5 : 0.05, size_y: 0.5, shape: "SQUARE", spot_size: 45, spot_blend: 0.3 });
+    doc.lights.push({ id, name: n(t(LIGHT_NAMES[what])), type: what, loc: p, rot: look(p, aim), color: [1, 1, 1], power: LIGHT_W[what], size: what === "area" ? 0.5 : 0.05, size_y: 0.5, shape: "SQUARE", spot_size: 45, spot_blend: 0.3 });
   } else if (what === "camera") {   // a copy of the card's camera; the card switches to it, the old one keeps its view
     const cur = findAny(doc, L.camId()) || doc.cameras[0];
-    doc.cameras.push(Object.assign(JSON.parse(JSON.stringify(cur)), { id, name: n("Камера") }));
-    const before = HY.snap(); HY.board.items[L.id].camera = id; HY.commit(before, "3D: новая камера");
+    doc.cameras.push(Object.assign(JSON.parse(JSON.stringify(cur)), { id, name: n(t("Camera")) }));
+    const before = HY.snap(); HY.board.items[L.id].camera = id; HY.commit(before, t("3D: new camera"));
   }
   await L.view.apply(doc); L.changed("add", true); L.reload();
   if (what !== "camera") pick(L, LIGHT_W[what] ? L.view.units.get(id).obj : L.view.units.get(id).obj, true);
 }
 async function removeThing(L, id) {
   const doc = L.e.doc, k = kindOf(doc, id); if (!k) return;
-  if (k === "cameras" && doc.cameras.length < 2) { HY.toast("Последнюю камеру не удалить"); return; }
+  if (k === "cameras" && doc.cameras.length < 2) { HY.toast(t("The last camera can't be deleted")); return; }
   doc[k] = doc[k].filter(x => x.id !== id); doc.removed = [...new Set([...(doc.removed || []), id])];
-  if (k === "cameras") { const it = HY.board.items[L.id]; if (it.camera === id) { const before = HY.snap(); it.camera = doc.cameras[0].id; HY.commit(before, "3D: камера удалена"); } if (doc.active_camera === id) doc.active_camera = doc.cameras[0].id; }
+  if (k === "cameras") { const it = HY.board.items[L.id]; if (it.camera === id) { const before = HY.snap(); it.camera = doc.cameras[0].id; HY.commit(before, t("3D: camera deleted")); } if (doc.active_camera === id) doc.active_camera = doc.cameras[0].id; }
   L.sel = null; await L.view.apply(doc); L.changed("remove", true); L.reload();
 }
-function setCamera(L, cid) { const before = HY.snap(); HY.board.items[L.id].camera = cid; HY.commit(before, "3D: камера карточки"); L.sel = null; L.reload(); }
+function setCamera(L, cid) { const before = HY.snap(); HY.board.items[L.id].camera = cid; HY.commit(before, t("3D: card camera")); L.sel = null; L.reload(); remember(L, "camera"); }
 // the card's frame changed (its edges, the ratio bar, the list): the scene's render size for Blender follows the card being edited
 export function framed(id) {
-  if (!live || live.id !== id) return; const L = live, it = HY.board.items[id]; if (!it) return; const a = it.w / it.h;
-  L.e.doc.render = { x: a >= 1 ? 1600 : Math.round(1600 * a), y: a >= 1 ? Math.round(1600 / a) : 1600 };
+  if (!live || live.id !== id) return; const L = live, it = HY.board.items[id]; if (!it) return;
+  const s = outSize(it, (L.e.doc.cameras || []).find(x => x.id === L.camId()), L.e.doc); L.e.doc.render = { x: s[0], y: s[1] };   // the card's output size (frame.js)
   L.changed("ratio", true); requestAnimationFrame(() => L.reload());
 }
 // «Широкий ↔ изометрия» (owner 2026-10-04: «a slider that changes the zoom together with the lens width, the picture goes wide angle
@@ -533,6 +591,14 @@ function dolly(L, c, lens) {
   c.clip = [Math.max(0.01, Math.min(0.5 * (d2 - 2 * R), 0.1 * d2)), Math.max(100, d2 + 4 * R)].map(x => +x.toFixed(3));
   cameraBack(L.e.doc, c.id, L.cam); L.recam(); L.changed("lens");
 }
+// the dolly zoom of any camera: the card's moves with the view (dolly), another one slides along its own line of sight to keep the point
+// it looks at (orbitOf) the same size
+function dollyAny(L, c, lens) {
+  if (c.id === L.camId()) return dolly(L, c, lens);
+  const o = orbitOf(L, c), d2 = o.dist * lens / c.lens, R = L.view.bounds.getSize(new THREE.Vector3()).length() / 2 || 0.1;
+  c.lens = lens; c.clip = [Math.max(0.01, Math.min(0.5 * (d2 - 2 * R), 0.1 * d2)), Math.max(100, d2 + 4 * R)].map(x => +x.toFixed(3));
+  setOrbit(L, c, { [K.dist]: d2 * 100, [K.az]: o.az, [K.inc]: o.inc, [K.roll]: o.roll });
+}
 // The camera as in KeyShot's «Position and Direction» (owner 2026-10-04: «add azimuth and the other two besides the coordinates»):
 // distance, azimuth, inclination and twist about the point the camera looks at. Azimuth turns in the floor plane from +X toward +Y,
 // inclination rises from the floor, as in Blender with z up; twist turns the camera about its line of sight. The point is the one the
@@ -546,13 +612,13 @@ function orbitOf(L, c) {
   const tw = level.quaternion.clone().invert().multiply(cam.quaternion);
   return { T, card, dist, az: Math.atan2(-v.z, v.x) * R2D, inc: Math.asin(THREE.MathUtils.clamp(v.y / dist, -1, 1)) * R2D, roll: 2 * Math.atan2(tw.z, tw.w) * R2D };
 }
-const orbitVals = o => ({ "Расстояние, см": Math.round(o.dist * 1000) / 10, "Азимут, °": Math.round(o.az), "Наклон, °": Math.round(o.inc), "Крен, °": Math.round(((o.roll + 540) % 360) - 180) });
-const orbitCfg = o => { const v = orbitVals(o); return { "Расстояние, см": [v["Расстояние, см"], 1, Math.max(500, Math.ceil(v["Расстояние, см"] * 3)), 0.1],
-  "Азимут, °": [v["Азимут, °"], -180, 180, 1], "Наклон, °": [v["Наклон, °"], -89, 89, 1], "Крен, °": [v["Крен, °"], -180, 180, 1] }; };
+const orbitVals = o => ({ [K.dist]: Math.round(o.dist * 1000) / 10, [K.az]: Math.round(o.az), [K.inc]: Math.round(o.inc), [K.roll]: Math.round(((o.roll + 540) % 360) - 180) });
+const orbitCfg = o => { const v = orbitVals(o); return { [K.dist]: [v[K.dist], 1, Math.max(500, Math.ceil(v[K.dist] * 3)), 0.1],
+  [K.az]: [v[K.az], -180, 180, 1], [K.inc]: [v[K.inc], -89, 89, 1], [K.roll]: [v[K.roll], -180, 180, 1] }; };
 function setOrbit(L, c, k) {
-  const o = orbitOf(L, c), a = k["Азимут, °"] * D2R, i = THREE.MathUtils.clamp(k["Наклон, °"], -89, 89) * D2R, d = Math.max(0.01, k["Расстояние, см"] / 100);
+  const o = orbitOf(L, c), a = k[K.az] * D2R, i = THREE.MathUtils.clamp(k[K.inc], -89, 89) * D2R, d = Math.max(0.01, k[K.dist] / 100);
   const t = new THREE.PerspectiveCamera(); t.position.copy(o.T).add(new THREE.Vector3(Math.cos(i) * Math.cos(a), Math.sin(i), -Math.cos(i) * Math.sin(a)).multiplyScalar(d));
-  t.lookAt(o.T); t.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), k["Крен, °"] * D2R));
+  t.lookAt(o.T); t.quaternion.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), k[K.roll] * D2R));
   cameraBack(L.e.doc, c.id, t);
   if (o.card) L.recam(); else { helpers(L); L.need(); }
   L.changed("camera");
@@ -562,25 +628,25 @@ function setOrbit(L, c, k) {
 const EUL = "ZYX";   // Blender's XYZ Euler applies X, then Y, then Z: in three.js terms the order "ZYX"
 function coordCfg(x) {
   const e = new THREE.Euler().setFromQuaternion(new THREE.Quaternion(x.rot[1], x.rot[2], x.rot[3], x.rot[0]), EUL), r = v => Math.round(v * R2D * 10) / 10;
-  return { "Положение, см": { X: [Math.round(x.loc[0] * 1000) / 10, -1000, 1000, 0.1], Y: [Math.round(x.loc[1] * 1000) / 10, -1000, 1000, 0.1], Z: [Math.round(x.loc[2] * 1000) / 10, -1000, 1000, 0.1] },
-    "Поворот, °": { X: [r(e.x), -180, 180, 0.1], Y: [r(e.y), -180, 180, 0.1], Z: [r(e.z), -180, 180, 0.1] }, _collapsed: true };
+  return { [K.pos]: { X: [Math.round(x.loc[0] * 1000) / 10, -1000, 1000, 0.1], Y: [Math.round(x.loc[1] * 1000) / 10, -1000, 1000, 0.1], Z: [Math.round(x.loc[2] * 1000) / 10, -1000, 1000, 0.1] },
+    [K.rot]: { X: [r(e.x), -180, 180, 0.1], Y: [r(e.y), -180, 180, 0.1], Z: [r(e.z), -180, 180, 0.1] }, _collapsed: true };
 }
 // A change counts only when the folder's own numbers changed (they are rounded: compared with the file they would nudge the camera on
 // every other change), and anything else that moves the camera writes the folder's numbers anew (2026-10-04: after a dolly zoom the
 // folder still held the old place and the next change put the camera back there)
 const sameVals = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 function coordSet(x, k) {
-  const P = k["Положение, см"], R = k["Поворот, °"], q = new THREE.Quaternion().setFromEuler(new THREE.Euler(R.X * D2R, R.Y * D2R, R.Z * D2R, EUL));
+  const P = k[K.pos], R = k[K.rot], q = new THREE.Quaternion().setFromEuler(new THREE.Euler(R.X * D2R, R.Y * D2R, R.Z * D2R, EUL));
   x.loc = [P.X / 100, P.Y / 100, P.Z / 100]; x.rot = [q.w, q.x, q.y, q.z];
 }
-const coordVals = x => { const c = coordCfg(x), v = {}; for (const f of ["Положение, см", "Поворот, °"]) { v[f] = {}; for (const a of "XYZ") v[f][a] = c[f][a][0]; } return v; };
-const FITS = [{ value: "AUTO", label: "Авто" }, { value: "HORIZONTAL", label: "По ширине" }, { value: "VERTICAL", label: "По высоте" }];
-const camMoreCfg = c => ({ "Сенсор, мм": [c.sensor || 36, 4, 100, 0.1], "Подгонка кадра": { type: "select", options: FITS, default: c.fit || "AUTO" },
-  "Сдвиг X": [(c.shift || [0, 0])[0], -1, 1, 0.01], "Сдвиг Y": [(c.shift || [0, 0])[1], -1, 1, 0.01],
-  "Ближняя граница, см": [Math.round((c.clip || [0.01, 100])[0] * 1000) / 10, 0.1, 1000, 0.1], "Дальняя граница, м": [(c.clip || [0.01, 100])[1], 1, 10000, 1], _collapsed: true });
+const coordVals = x => { const c = coordCfg(x), v = {}; for (const f of [K.pos, K.rot]) { v[f] = {}; for (const a of "XYZ") v[f][a] = c[f][a][0]; } return v; };
+const FITS = () => [{ value: "AUTO", label: t("Auto") }, { value: "HORIZONTAL", label: t("Horizontal") }, { value: "VERTICAL", label: t("Vertical") }];
+const camMoreCfg = c => ({ [K.sensor]: [c.sensor || 36, 4, 100, 0.1], [K.fit]: { type: "select", options: FITS(), default: c.fit || "AUTO" },
+  [K.shiftX]: [(c.shift || [0, 0])[0], -1, 1, 0.01], [K.shiftY]: [(c.shift || [0, 0])[1], -1, 1, 0.01],
+  [K.near]: [Math.round((c.clip || [0.01, 100])[0] * 1000) / 10, 0.1, 1000, 0.1], [K.far]: [(c.clip || [0.01, 100])[1], 1, 10000, 1], _collapsed: true });
 function camMoreSet(c, k) {
   if (!k) return false;
-  const n = { sensor: k["Сенсор, мм"], fit: k["Подгонка кадра"], shift: [k["Сдвиг X"], k["Сдвиг Y"]], clip: [k["Ближняя граница, см"] / 100, k["Дальняя граница, м"]] };
+  const n = { sensor: k[K.sensor], fit: k[K.fit], shift: [k[K.shiftX], k[K.shiftY]], clip: [k[K.near] / 100, k[K.far]] };
   const was = { sensor: c.sensor || 36, fit: c.fit || "AUTO", shift: c.shift || [0, 0], clip: c.clip || [0.01, 100] };
   if (JSON.stringify(n) === JSON.stringify(was)) return false;
   Object.assign(c, n); return true;
@@ -599,13 +665,19 @@ function scopeOf(L) {
   const cid = L.camId(), pick = (doc, item) => ({ cam: (doc.cameras || []).find(x => x.id === cid), world: doc.world, render: doc.render, bg: item.bg, lock: item.lock, w: item.w, h: item.h });
   return { scene: true, cid, now: () => pick(d, it), was: pick(s, is) };
 }
-const itemFields = ["camera", "bg", "lock", "w", "h"];
 function resetState(L) {
   if (live !== L || !L.ui) return;
   const sc = scopeOf(L), paneChanged = !!(sc && sc.was) && norm(sc.now()) !== norm(sc.was);
-  const pb = [...L.ui.root.querySelectorAll(".dk button")].find(b => b.textContent.trim() === "Сбросить");
-  if (pb) { pb.classList.add("hy-reset"); pb.disabled = !paneChanged; pb.title = paneChanged ? "Вернуть, как было при открытии редактора" : "Ничего не менялось"; }
-  const it = HY.board.items[L.id] || {}, allChanged = stateKey(tidy(clone(L.e.doc))) !== L.start.key || itemFields.some(f => JSON.stringify(it[f]) !== JSON.stringify(L.start.item[f]));
+  const pb = [...L.ui.root.querySelectorAll(".dk button")].find(b => b.textContent.trim() === K.reset);
+  if (pb) { pb.classList.add("hy-reset"); pb.disabled = !paneChanged; pb.title = paneChanged ? t("Back to how it was when the editor opened") : t("Nothing changed"); }
+  if (L.syncRes) L.syncRes();   // the output size follows the card (an undo, an edge dragged on the board)
+  // each action button says what it does (owner 2026-10-07: «Delete» read «Nothing changed»; that is Reset's reason alone)
+  const del = { camera: "Delete camera", light: "Delete light", object: "Delete object" }[L.paneKind];
+  for (const b of L.ui.root.querySelectorAll(".dk .dialkit-button")) {
+    const w = b.textContent.trim(), tip = w === K.del ? (del ? t(del) : "") : w === K.showcard ? t("The card will look through this camera") : null;
+    if (tip !== null && b.title !== tip) b.title = tip;
+  }
+  const it = HY.board.items[L.id] || {}, allChanged = stateKey(noUi(tidy(clone(L.e.doc)))) !== L.start.key || itemFields.some(f => JSON.stringify(it[f]) !== JSON.stringify(L.start.item[f]));
   const db = L.ui.bar && L.ui.bar.querySelector("[data-a=reset]"); if (db) db.disabled = !allChanged;
 }
 async function resetPane(L) {
@@ -620,12 +692,14 @@ async function resetPane(L) {
 }
 async function resetAll(L) {
   const d = L.e.doc, s = clone(L.start.doc);
-  for (const k of Object.keys(d)) if (!["rev", "by", "t"].includes(k)) delete d[k];
-  for (const k of Object.keys(s)) if (!["rev", "by", "t"].includes(k)) d[k] = s[k];
+  for (const k of Object.keys(d)) if (!["rev", "by", "t", "ui"].includes(k)) delete d[k];
+  for (const k of Object.keys(s)) if (!["rev", "by", "t", "ui"].includes(k)) d[k] = s[k];
   const it = HY.board.items[L.id], before = HY.snap(); for (const f of itemFields) { if (L.start.item[f] === undefined) delete it[f]; else it[f] = clone(L.start.item[f]); } HY.commit(before);
   L.sel = null; await L.view.apply(d); L.reload(); L.changed("reset", true); resetState(L);
 }
 export function nudge(id) { if (live && live.id === id) live.need(); }
+// the card's editor bar on the board (canvas.html def.editBar): Blender's controls when the scene came from a studio (blender.js)
+export function editBar(el, id) { if (live && live.id === id && live.blender) live.blender.mount(el); }
 
 // ---- snapshot: the plain view (with the card's background, transparent if so), the masks and the depth of the card's camera
 async function shoot(L) {
@@ -637,18 +711,18 @@ async function shoot(L) {
   hid(); L.redraw();
   const objs = doc.objects.filter(o => !o.hidden && !o.shadow_only), legend = objs.map((o, i) => ({ mask: L.view.units.get(o.id) ? L.view.units.get(o.id).mask : MASKS[i % MASKS.length], name: o.name, ai: o.ai || "" }));
   const lens = Math.round(c.lens), what = legend.map(m => `${m.mask} ${m.ai || m.name}`).join("; ");
-  const common = { model: "Hyimg 3D (three.js r180, предпросмотр, не рендер Blender)", route: "hyimg-3d", scene: L.path, scene_rev: doc.rev, camera: c, render: { x: W, y: H },
+  const common = { model: t("Hyimg 3D (three.js r180, preview, not a Blender render)"), route: "hyimg-3d", scene: L.path, scene_rev: doc.rev, camera: c, render: { x: W, y: H },
     background: it.bg || { world: true }, masks: legend, reproduce: `в Blender: blender -b --python <Hyimg-3d>/blender/hyimg_scene.py -- apply <библиотека>/${L.path} --fresh --save-as <файл.blend>, камера ${c.name}${it.bg && it.bg.transparent ? ", Film › Transparent" : ""}` };
   try {
     const before = HY.snap(), x0 = it.x + it.w + Math.round(it.w * 0.05);
-    const b = await HY.snapshot(blobs.beauty, "3d-scene", SHOTS, Object.assign({ prompt: `3D-набросок сцены для генерации: камера ${c.name}, объектив ${lens} мм; предметы по маскам: ${what}`, pass: "вид" }, common));
-    const m = await HY.snapshot(blobs.mask, "3d-mask", SHOTS, Object.assign({ prompt: `маски предметов к ${b.path}: ${what}`, pass: "маски", of: b.path }, common));
-    const d = await HY.snapshot(blobs.depth, "3d-depth", SHOTS, Object.assign({ prompt: `глубина к ${b.path}: белое близко, черное далеко`, pass: "глубина", of: b.path }, common));
-    const bw = it.h * b.ar; HY.addPicture(b.path, b.ar, x0, it.y, bw);
+    const b = await HY.snapshot(blobs.beauty, "3d-scene", SHOTS, Object.assign({ prompt: t("3D sketch of a scene for generation: camera {cam}, lens {lens} mm; objects by masks: {what}", { cam: c.name, lens, what }), pass: "вид" }, common));
+    const m = await HY.snapshot(blobs.mask, "3d-mask", SHOTS, Object.assign({ prompt: t("object masks for {path}: {what}", { path: b.path, what }), pass: "маски", of: b.path }, common));
+    const d = await HY.snapshot(blobs.depth, "3d-depth", SHOTS, Object.assign({ prompt: t("depth for {path}: white is near, black is far", { path: b.path }), pass: "глубина", of: b.path }, common));
+    const bw = it.h * b.ar, bid = HY.addPicture(b.path, b.ar, x0, it.y, bw);
+    if (it.grade && HY.board.items[bid]) HY.board.items[bid].grade = JSON.parse(JSON.stringify(it.grade));   // the view is the card's picture: it keeps the card's grade, the file is not graded
     const sh = it.h / 2 - 8; HY.addPicture(m.path, m.ar, x0 + bw + 16, it.y, sh * m.ar); HY.addPicture(d.path, d.ar, x0 + bw + 16, it.y + sh + 16, sh * d.ar);
-    HY.commit(before, "3D: снимок, маски и глубина рядом");
-    L.before = HY.snap();
-  } catch (err) { HY.toast("Снимок не сохранен: " + err.message); }
+    HY.commit(before, t("3D: snapshot, masks and depth beside it"));   // a step now; at «Done» it is part of the session's one step
+  } catch (err) { HY.toast(t("Snapshot not saved: {e}", { e: err.message })); }
 }
 
 // ---- panels, after Spline (owner 2026-10-03): layers left with search and nesting lines, the inspector right without tabs (it shows
@@ -658,20 +732,32 @@ const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&am
 const hexOf = c => "#" + new THREE.Color(c[0], c[1], c[2]).getHexString();
 const linOf = h => { const c = new THREE.Color(h); return [+c.r.toFixed(4), +c.g.toFixed(4), +c.b.toFixed(4)]; };
 const r1 = x => Math.round(x * 10) / 10;
-const SVG = {
-  model: '<path d="M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/>', group: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
-  file: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>', mesh: '<path d="M12 3 4 7.5v9L12 21l8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/>',
-  light: '<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2"/>', camera: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/>',
-  eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>', off: '<path d="M3 3l18 18M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 9 6 9 6a15.7 15.7 0 0 1-3 3.4M6.4 6.4C4.2 8 3 12 3 12s4 6 9 6a8.7 8.7 0 0 0 3.6-.8"/>',
-  chev: '<path d="M6 9l6 6 6-6"/>', lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', unlock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/>',
-  plus: '<path d="M12 5v14M5 12h14"/>', smart: '<circle cx="7" cy="7" r="2.6"/><path d="M9 9.2c2.5 2.6 1.6 6.8 6.4 8.4"/><path d="M14.5 21l3.4-3.3-3.3-3.4"/>', search: '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4-4"/>', select: '<path d="M6 3l12 7-5.5 1.5L10 17z"/>',
-  translate: '<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/>', rotate: '<path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/>',
-  scale: '<path d="M4 20l7-7M4 20v-5M4 20h5M20 4l-7 7M20 4v5M20 4h-5"/>', shot: '<path d="M4 8a2 2 0 0 1 2-2h2l2-2h4l2 2h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.5" r="3.5"/>',
-  box: '<path d="M12 3 4 7.5v9L12 21l8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/>', sphere: '<circle cx="12" cy="12" r="8"/><path d="M4 12c3 3 13 3 16 0"/>',
-  cylinder: '<ellipse cx="12" cy="6" rx="7" ry="2.5"/><path d="M5 6v12c0 1.4 3 2.5 7 2.5s7-1.1 7-2.5V6"/>', plane: '<path d="M3 15l6-6h12l-6 6z"/>',
-};
-const ico = (k, cls = "ic") => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${SVG[k]}</svg>`;
-const FIN_RU = { "": "Как в файле", matte: "Мат", glossy: "Глянец", metal: "Металл" }, FIN_EN = Object.fromEntries(Object.entries(FIN_RU).map(([k, v]) => [v, k]));
+// a layer's path as the editor shows it: the path's own names are keys in the scene file (scene.js nodeLabel: «Чехол», «узел», «~зеркало»
+// stay as they are in the file), shown in the page's language
+const shownPath = path => path.split("/").map(seg => { const m = seg.endsWith("~зеркало"), b = m ? seg.slice(0, -"~зеркало".length) : seg;
+  return (b === "Чехол" ? t("Case") : b === "узел" ? t("node") : b) + (m ? "~" + t("mirror") : ""); });
+// one icon family with the image studio and the board (owner 2026-10-06: «почему-то они не круглые в 3d studio», the tools drawn in another
+// hand; 2026-10-07: «одно значение, одна иконка»): every icon here is Hyimg's (ui/icons.js hyIcon), the studio draws none of its own. The
+// studio's names for them, each to its registry name: a scene's camera wears the camera, Snapshot the photo camera, an added box «primBox»
+const FAMILY = { translate: "move", smart: "pull", off: "eyeoff", unlock: "lockOpen", group: "folder", file: "doc", box: "primBox", shot: "snapshot" };   // hy-icon-names
+const ico = (k, cls = "ic") => hyIcon(FAMILY[k] || k, 0, 1.85, cls);
+const hasIco = k => !!(window.HY_TOOL_IC && HY_TOOL_IC[FAMILY[k] || k]);
+// the library's own folder search field (review/v2.html #ffilt in ui/look.css .hy-search: its magnifier, height, radius, padding, ground)
+const LIB_FIND = hyIcon("search", 0, 2);
+// the app's one chevron (ui/icons.js HY_CHEV): the layer list's sections and rows fold with it
+const CHEV = () => window.HY_CHEV;
+// the layer list's sections, in this order, each folding and each sized by the line under the one above (ui/split.js)
+const SECS = ["objects", "lights", "cameras", "materials"], SEC_NAME = { objects: "Objects", lights: "Lights", cameras: "Cameras", materials: "Materials" };
+// a tree node's navigation colour (owner 2026-10-06: right click on a file, a group or a folder of the list, «a colour row on top», the board's
+// sticky-note colours): it marks the row and what is under it, never the object's material. The app's marking colours and their row of
+// swatches are Hyimg's (ui/menu.js HY_COLORS, hyMenuColors), the same as the library's folder tree; the copy here is for an older Hyimg.
+// The scene file keeps the name of the colour (ui.colors in scene.json, scene.js)
+const OLD_COLS = { yellow: "#f4c430", orange: "#f59a3d", red: "#ef6a6a", pink: "#f08cc4", purple: "#b79cf2", blue: "#7dbbf5", green: "#7fd49b", grey: "#d9d9de" };
+const navCols = () => window.HY_COLORS || OLD_COLS;
+const navHex = name => (name && navCols()[name]) || null;
+// a material: the file's own or a finish; the list shows names in the page's language, FIN_KEY turns a name back into the finish
+const FIN_WORDS = { "": "As in the file", matte: "Matte", glossy: "Gloss", metal: "Metal" };
+let FIN_NAME = {}, FIN_KEY = {};
 const MENU_ICON = { box: "box", cylinder: "cylinder", sphere: "sphere", plane: "plane", model: "model", camera: "camera" };
 
 function buildUI(L) {
@@ -683,25 +769,54 @@ function buildUI(L) {
   L.themeObs = new MutationObserver(() => { const t = pageTheme(); root.dataset.theme = t; root.querySelectorAll(".dialkit-root").forEach(r => { r.dataset.theme = t; }); });
   L.themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-ui"] });
   root.innerHTML = `
-    <div class="m3p m3t"><span class="tip"><button class="plus" data-plus title="Добавить" aria-label="Добавить">${ico("plus")}</button><div class="menu m3menu" hidden>${ADD.map(([k, t]) => `<button data-add="${k}">${ico(MENU_ICON[k] || "light")}${t}</button>`).join("")}</div></span>
-      <span class="sep"></span>${[["select", "Выбор", "V"], ["translate", "Двигать", "G"], ["rotate", "Вращать", "R"], ["scale", "Размер", "S"], ["smart", "Тянуть: за точку, как на нитке в густом геле", "T"]].map(([k, t, key]) => `<button data-tool="${k}" data-key="${key}" title="${t} · ${key}" aria-label="${t}">${ico(k)}</button>`).join("")}
-      <span class="sep"></span><button class="hy-reset" data-a="reset" title="Сбросить все: сцена и карточка, как при открытии редактора" aria-label="Сбросить все" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>Сбросить</button><button class="wide" data-a="shot" title="Вид, маски и глубина рядом с карточкой · P">${ico("shot")}Снимок</button><button class="wide pri" data-a="done" title="Готово · Enter">Готово</button></div>
-    <div class="m3p m3l"><div class="lh"><b>3D-сцена</b><code class="fp"></code></div>
-      <label class="find">${ico("search")}<input data-q placeholder="Поиск слоя" autocomplete="off"></label>
-      <div class="opts"><label title="Показать обертки из файлов без геометрии"><input type="checkbox" data-raw> все узлы</label></div><div class="tr"></div></div>
-    <div class="m3p m3r"><div class="ih"></div><div class="inf"></div><div class="dk"></div></div>
-    <div class="m3x"><svg class="axes" viewBox="0 0 90 90" aria-label="Оси: перетаскивание крутит камеру, клик по оси ставит камеру вдоль нее"></svg></div>`;
+    <div class="m3p m3t"><span class="tip"><button class="plus" data-plus title="${t("Add")}" aria-label="${t("Add")}">${ico("plus")}</button><div class="menu m3menu" hidden>${ADD.map(([k, w]) => `<button data-add="${k}">${ico(MENU_ICON[k] || "light")}${t(w)}</button>`).join("")}</div></span>
+      <span class="sep"></span>${[["select", "Select", "V"], ["translate", "Move", "G"], ["rotate", "Rotate", "R"], ["scale", "Scale", "S"], ["smart", "Pull: by a point, as on a string in thick gel", "T"]].map(([k, w, key]) => `<button data-tool="${k}" data-key="${key}" title="${t(w)} · ${key}" aria-label="${t(w)}">${ico(k)}<kbd>${key}</kbd></button>`).join("")}
+      <button class="m3ic" data-a="undo" title="${t("Undo · ⌘Z")}" aria-label="${t("Undo")}" disabled>${hyIcon("undo", 0, 2)}</button>
+      <button class="m3ic" data-a="redo" title="${t("Redo · ⇧⌘Z")}" aria-label="${t("Redo")}" disabled>${hyIcon("redo", 0, 2)}</button>
+      <button class="m3reset" data-a="reset" title="${t("Reset all: the scene and the card as they were when the editor opened")}" aria-label="${t("Reset all")}" disabled>${hyIcon("reset", 0, 2)}</button><span class="sep"></span>
+      <button class="wide" data-a="shot" title="${t("View, masks and depth beside the card · P")}">${ico("shot")}${t("Snapshot")}</button>
+      <button class="wide" data-a="cancel" title="${t("Close without saving · Esc")}">${t("Cancel")}</button>
+      <button class="wide pri" data-a="save" title="${t("Save the scene and the card's view and close · ⌘↵")}">${hyIcon("check", 0, 2.4)}${t("Save")}</button></div>
+    <div class="m3title hy-plate" data-hyui><b>${t("3D scene")}</b><code class="fp"></code></div>
+    <div class="m3p m3l" data-hyui><div class="lhd"><label class="hy-search">${LIB_FIND}<input data-q type="search" placeholder="${t("Search layers")}" aria-label="${t("Search layers")}" autocomplete="off" spellcheck="false"></label></div>
+      <div class="opts"><label title="${t("Show the files' wrappers without geometry")}"><input type="checkbox" data-raw> ${t("all nodes")}</label></div>
+      <div class="tr">${SECS.map((k, i) => `${i ? `<div class="msp" data-before="${k}"></div>` : ""}<section class="ms" data-s="${k}" hidden><div class="msh" role="button" aria-expanded="true" title="${t("Fold or unfold")}"><span class="mtg">${CHEV()}</span><span class="mst">${t(SEC_NAME[k])}</span><span class="cnt"></span></div><div class="msb"><div class="msi"></div></div></section>`).join("")}<div class="none" hidden>${t("Nothing found")}</div></div></div>
+    <div class="m3p m3r" data-hyui><div class="m3tabs" role="tablist"><button class="m3tab on" data-tab="props" role="tab" aria-selected="true">${t("Properties")}</button><button class="m3tab" data-tab="hist" role="tab" aria-selected="false">${t("History")}</button></div><div class="ih"></div><div class="inf"></div><div class="dk"></div><div class="m3hist" role="list" hidden></div></div>
+    <div class="m3x" data-hyui><svg class="axes" viewBox="0 0 90 90" aria-label="${t("Axes: drag turns the camera, a click on an axis puts the camera along it")}"></svg></div>`;
   document.body.appendChild(root);
   const q = s => root.querySelector(s), doc = () => L.e.doc;
-  q(".m3l .fp").textContent = L.path;
+  q(".m3title .fp").textContent = L.path; q(".m3title").title = L.path;
+  // the scene's title is a plate in the top band (owner 2026-10-06: «3D scene 3d/scenes/…» on top, as a group's title when you are zoomed
+  // into the group): the board's stuck group title (canvas.html stickTitles, #gsticky .gst), on the crumb's middle line right after it. It
+  // comes in from the left panel's top, where the title stood, and glides along when the crumb grows or the library moves it
+  const plate = q(".m3title"); let plateAt = null;
+  const placePlate = () => {
+    if (document.documentElement.classList.contains("hy-hideui")) return;   // hidden with the rest: it leaves from where it stands
+    const c = document.getElementById("crumb"), cb = c && c.getClientRects().length ? c.getBoundingClientRect() : null;
+    const l = parseFloat(root.style.getPropertyValue("--l")) || 12, x = Math.round(cb && cb.width ? cb.right + 8 : l), y = Math.round(cb && cb.width ? cb.top + (cb.height - plate.offsetHeight) / 2 : 12);
+    if (plateAt && (plateAt[0] !== x || plateAt[1] !== y)) glidePlate();
+    plateAt = [x, y]; plate.style.transform = `translate(${x}px, ${y}px)`;
+  };
+  const glidePlate = () => { plate.classList.add("glide"); clearTimeout(plate._g); plate._g = setTimeout(() => plate.classList.remove("glide"), 320); };
   const place = () => {   // inside the stage, right of the library panel, clear of the dock
     const r = HY.stage.getBoundingClientRect(), inset = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--inset")) || 0;
     root.style.setProperty("--l", (r.left + inset + 12) + "px"); root.style.setProperty("--r", (innerWidth - r.right + 12) + "px");
-    root.style.setProperty("--t", (r.top + 12) + "px"); root.style.setProperty("--b", (innerHeight - r.bottom + 76) + "px");
+    // the panels start below the app's top band, as the library and the frame editor's panels do (owner 2026-10-06: «the top panel climbs onto
+    // our interface»): under the crumb plate and the window buttons, which stay visible and clickable
+    const crumb = document.getElementById("crumb"), band = crumb && crumb.getClientRects().length ? crumb.getBoundingClientRect().bottom + 8 : 0;
+    root.style.setProperty("--t", Math.max(r.top + 12, band) + "px"); root.style.setProperty("--b", (innerHeight - r.bottom + 76) + "px");
+    if (plateAt) placePlate();
   };
   // the panels follow the window and the library's edge (--inset changes when the library folds or opens)
   const mo = new MutationObserver(place); mo.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
-  place(); addEventListener("resize", place); L.unplace = () => { removeEventListener("resize", place); mo.disconnect(); };
+  place(); addEventListener("resize", place);
+  plate.style.transform = `translate(${parseFloat(root.style.getPropertyValue("--l")) || 12}px, ${parseFloat(root.style.getPropertyValue("--t")) || 12}px)`;   // where the panel's title stood
+  requestAnimationFrame(() => { glidePlate(); placePlate(); });
+  const crumbRo = new ResizeObserver(() => placePlate()), crumbEl = document.getElementById("crumb"); if (crumbEl) crumbRo.observe(crumbEl);
+  // ⌘. hides the interface (the board's :root.hy-hideui, the panels carry data-hyui): the plate goes with it, the view shows no marks (onHide)
+  const onHide = ev => { requestAnimationFrame(placePlate); if (ev.detail && ev.detail.on) { L.hov = null; markTree(); } L.need(); };
+  document.addEventListener("hy:hideui", onHide);
+  L.unplace = () => { removeEventListener("resize", place); mo.disconnect(); crumbRo.disconnect(); document.removeEventListener("hy:hideui", onHide); };
   L.dk = createDialRoot({ mode: "inline", target: q(".dk"), theme: pageTheme() });
 
   // -- the tree, as in Spline: thin lines show nesting, eye and lock appear on hover. A wrapper without geometry and with one child
@@ -711,38 +826,238 @@ function buildUI(L) {
   const chainOf = n => { const c = [n]; while (folds(c[c.length - 1])) c.push(c[c.length - 1].children[0]); return c; };
   const meshCount = n => { let k = 0; n.traverse(m => { if (m.isMesh) k++; }); return k; };
   const kidsOf = n => { if (n.userData.kind === "object") { const w = n.children[0]; return !w || w.isMesh ? [] : w.children; } return n.isMesh || n.userData.kind ? [] : n.children; };
-  const hits = (n, label) => { if (!query) return true; if ((label || "").toLowerCase().includes(query)) return true; let f = false; n.traverse(x => { if (!f && ((x.userData.label || x.name || "").toLowerCase().includes(query))) f = true; }); return f; };
-  const row = (rows, n, guides, label, rec) => {
-    if (!hits(n, label)) return;
+  const hits = (n, label) => { if (!query) return true; if ((label || "").toLowerCase().includes(query)) return true; let f = false; n.traverse(x => { if (!f && ((x.userData.shown || x.userData.label || x.name || "").toLowerCase().includes(query))) f = true; }); return f; };
+  // a row's navigation colour: its own (ui.colors[key] in the scene file) or the one of the row it sits in; the key is the thing's id, or
+  // «<object id>/<layer path>» for a part of a model (the same path the layer settings use, scene.js layerPath)
+  const navOf = () => (doc().ui && doc().ui.colors) || {};
+  const keyOf = (n, rec) => { if (rec) return rec.id; const u = unitOf(n); return u && u !== n ? `${u.userData.id}/${layerPath(u, n)}` : ""; };
+  const tint = c => c ? ` nc" style="--nc:${navHex(c)}` : "";
+  // the app's one padlock (Hyimg's ui/icons.js hyLockIcon, owner 2026-10-07: its shackle swings open and shut); the row just switched
+  // from the keys or the menu plays the move once (L.lockGo), a drag switches the drawn icons in place
+  const lockIco = (on, id) => window.hyLockIcon ? window.hyLockIcon(on, 13, { cls: "ic", go: L.lockGo === id }) : ico(on ? "lock" : "unlock");
+  // several chosen rows (⌘ or ⇧ click in the list, owner 2026-10-07): L.multi holds them with the pick first, as the view's selection of many
+  const many = () => (L.multi && L.sel && L.multi[0] === L.sel && L.multi.length > 1 ? L.multi : null);
+  const chosenIn = chain => { const m = many(); return !!m && m.some(x => chain.includes(x)); };
+  // ih, il: a thing above the row is hidden, locked; inherited, never written into the row's own flags (owner 2026-10-07: «если группу
+  // выключаю или включаю lock или глаз, то это не сбрасывает настройки у тех layers»); the row shows it faintly
+  const row = (rows, n, guides, label, rec, inh, ih, il) => {
+    if (!hits(n, label)) return false;
     const chain = n.userData.kind ? [n] : chainOf(n), last = chain[chain.length - 1], kids = n.userData.kind ? kidsOf(n) : kidsOf(last), open = L.open.has(n.uuid) || !!query;
-    const isSel = L.sel && chain.includes(L.sel), within = !isSel && L.sel && n.getObjectById(L.sel.id);
+    const isSel = (L.sel && chain.includes(L.sel)) || chosenIn(chain), within = !isSel && L.sel && n.getObjectById(L.sel.id);
     const kind = n.userData.kind === "light" ? "light" : n.userData.kind === "object" ? (kids.length ? "model" : (rec && rec.src && rec.src.shape) || "mesh") : n.userData.label ? "file" : last.isMesh ? "mesh" : "group";
-    const hidden = n.visible === false || last.visible === false, locked = rec && rec.locked;
-    const name = label || n.userData.label || n.name || last.name || (last.isMesh ? "меш" : "узел");
+    const hidden = n.visible === false || last.visible === false, locked = rec && rec.locked, gh = ih && !hidden, gl = il && !locked;
+    const name = label || n.userData.shown || n.userData.label || n.name || last.name || (last.isMesh ? t("mesh") : t("node"));
     const sub = last.isMesh ? (last.userData.base && last.userData.base.mat.name ? last.userData.base.mat.name : "") : chain.length > 1 && last.name !== name ? last.name : "";
-    const cnt = kids.length ? meshCount(last) : 0;
-    rows.push(`<div class="row${isSel ? " sel" : ""}${within ? " in" : ""}${hidden ? " hidden" : ""}${kids.length && !open ? " closed" : ""}" data-u="${n.uuid}" title="${esc(chain.map(c => c.name || "·").join(" › "))}">
-      ${guides.map(g => `<i class="g${g ? " on" : ""}"></i>`).join("")}${kids.length ? `<button class="chev" data-open="${n.uuid}" aria-label="Развернуть">${ico("chev")}</button>` : '<span class="chev"></span>'}${ico(SVG[kind] ? kind : "mesh")}
-      <span class="nm">${esc(name)}${n.userData.mirror || last.userData.mirror ? "<small>зеркало</small>" : ""}${sub ? `<small>${esc(sub)}</small>` : ""}</span>${cnt > 1 ? `<span class="cnt">${cnt}</span>` : ""}
-      <span class="acts">${rec ? `<button data-lock="${rec.id}" class="${locked ? "keep" : ""}" aria-label="Заблокировать">${ico(locked ? "lock" : "unlock")}</button>` : ""}<button data-eye="${n.uuid}" class="${hidden ? "keep" : ""}" aria-label="Скрыть или показать">${ico(hidden ? "off" : "eye")}</button></span></div>`);
-    if (kids.length && open) kids.forEach((c, i) => row(rows, c, [...guides, i < kids.length - 1]));
+    const cnt = kids.length ? meshCount(last) : 0, key = keyOf(n, rec), col = navCols()[navOf()[key]] ? navOf()[key] : inh;
+    rows.push(`<div class="row${isSel ? " sel" : ""}${within ? " in" : ""}${hidden ? " hidden" : ""}${gh ? " ghid" : ""}${kids.length && !open ? " closed" : ""}${tint(col)}" data-u="${n.uuid}" data-k="${esc(key)}" title="${esc(chain.map(c => c.name || "·").join(" › "))}">
+      ${guides.map(g => `<i class="g${g.on ? " on" : ""}${tint(g.c)}"></i>`).join("")}${kids.length ? `<button class="chev" data-open="${n.uuid}" aria-label="${t("Expand")}">${CHEV()}</button>` : '<span class="chev"></span>'}${ico(hasIco(kind) ? kind : "mesh")}
+      <span class="nm">${esc(name)}${n.userData.mirror || last.userData.mirror ? `<small>${t("mirror")}</small>` : ""}${sub ? `<small>${esc(sub)}</small>` : ""}</span>${cnt > 1 ? `<span class="cnt">${cnt}</span>` : ""}
+      <span class="acts">${rec ? `<button data-lock="${rec.id}" class="${locked ? "keep" : ""}" aria-label="${t("Lock")}">${lockIco(locked, rec.id)}</button>` : gl ? `<span class="inhlk" title="${t("Locked by its group")}">${lockIco(true, "")}</span>` : ""}<button data-eye="${n.uuid}" class="${hidden || gh ? "keep" : ""}${gh ? " inh" : ""}" aria-label="${t("Hide or show")}"${gh ? ` title="${t("Hidden by its group")}"` : ""}>${ico(hidden || gh ? "off" : "eye")}</button></span></div>`);
+    // the lines under this row's children take its colour, and so do the children that have none of their own
+    if (kids.length && open) kids.forEach((c, i) => row(rows, c, [...guides, { on: i < kids.length - 1, c: col }], undefined, undefined, col, ih || hidden, il || !!locked));
+    return true;
   };
+  const secEl = Object.fromEntries(SECS.map(k => [k, q(`.ms[data-s="${k}"]`)]));
   const tree = () => {
-    const d = doc(), rows = [], cardCam = L.camId(), sec = (t, list) => { const at = rows.length; list(); if (rows.length > at) rows.splice(at, 0, `<div class="sec">${t}</div>`); };
-    sec("Объекты", () => { for (const o of d.objects) { const u = L.view.units.get(o.id); if (u) row(rows, u.obj, [], o.name, o); } });
-    sec("Свет", () => { for (const l of d.lights) { const u = L.view.units.get(l.id); if (u) row(rows, u.obj, [], l.name, l); } });
-    sec("Камеры", () => { for (const c of d.cameras) if (!query || c.name.toLowerCase().includes(query)) rows.push(`<div class="row${L.sel && L.sel.userData.cam === c.id ? " sel" : ""}" data-cam="${c.id}"><span class="chev"></span>${ico("camera")}<span class="nm">${esc(c.name)}</span>${c.id === cardCam ? '<span class="tag">кадр</span>' : ""}</div>`); });
-    q(".tr").innerHTML = rows.join("") || '<div class="none">Ничего не нашлось</div>';
+    const d = doc(), cardCam = L.camId(), nav = navOf(), out = { objects: [], lights: [], cameras: [], materials: [] }, top = { objects: 0, lights: 0, cameras: 0, materials: 0 };
+    for (const o of d.objects) { const u = L.view.units.get(o.id); if (u && row(out.objects, u.obj, [], o.name, o)) top.objects++; }
+    for (const l of d.lights) { const u = L.view.units.get(l.id); if (u && row(out.lights, u.obj, [], l.name, l)) top.lights++; }
+    // a camera's lock as an object's (owner 2026-10-07: «и чтобы блокировать можно было камеры таким же образом»): locked, its icon is not
+    // picked in the view, so it is not dragged there by mistake; the list still picks it
+    for (const c of d.cameras) if (!query || c.name.toLowerCase().includes(query)) { top.cameras++; out.cameras.push(`<div class="row${(L.sel && L.sel.userData.cam === c.id) || chosenIn([L.icons.get(c.id)]) ? " sel" : ""}${tint(navCols()[nav[c.id]] && nav[c.id])}" data-cam="${c.id}" data-k="${esc(c.id)}"><span class="chev"></span>${ico("camera")}<span class="nm">${esc(c.name)}</span>${c.id === cardCam ? `<span class="tag">${t("card")}</span>` : ""}<span class="acts"><button data-lock="${c.id}" class="${c.locked ? "keep" : ""}" aria-label="${t("Lock")}">${lockIco(!!c.locked, c.id)}</button></span></div>`); }
+    if (L.look) L.look.rows(out, top, query);   // the card's variant and the look's materials (variants.js)
+    for (const k of SECS) { secEl[k].hidden = !out[k].length; secEl[k].querySelector(".msi").innerHTML = out[k].join(""); secEl[k].querySelector(".cnt").textContent = top[k] || ""; }
+    q(".tr > .none").hidden = SECS.some(k => out[k].length);
+    L.lockGo = null; lay();
   };
+
+  // -- the sections: each folds by its title (the app's chevron turns, the rows close with the app's curve), and the line between two open
+  // ones is the app's one splitter (ui/split.js, the frame editor's), laid over the line so it takes no room. They move as one stack
+  // (sections.js, owner 2026-10-06): a handle moves the section above it and the ones below ride along, a folded section's room goes to the
+  // open ones, a double click makes the sections it sized automatic again. Every height is set here in px; folds and sizes are the
+  // person's (pref m3.sections, v 2), not the scene's. Sizes kept before the stack (no v: an old drag sized both sides of a line) meant
+  // something else and are dropped once (owner 2026-10-07: Lights kept one row of an old drag); the folds stay
+  let secSt = (() => { let v = {}; try { v = JSON.parse(HY.pref("m3.sections", "{}")) || {}; } catch (e) { v = {}; }
+    const now = v.v === 2;
+    return Object.fromEntries(SECS.map(k => { const x = v[k] || {}, o = { size: now && typeof x.size === "number" && x.size >= 0 ? Math.round(x.size) : null, shut: !!x.shut };
+      if (now && x.by && SECS.includes(x.by)) o.by = x.by; if (now && x.was > 0) o.was = Math.round(x.was); return [k, o]; })); })();
+  const saveSecs = () => HY.setPref("m3.sections", JSON.stringify({ v: 2, ...secSt }));
+  const body = k => secEl[k].querySelector(".msb");
+  const tr = q(".tr");
+  // the shown sections with their rows' height, and the stack's height (a search shows every section, without changing what is kept).
+  // A tree's rows gliding open or shut (.kids) count at the height they glide to. How short a section may get: its active and selected rows
+  // (owner 2026-10-07: Cameras squeezed shows the active camera; Lights with nothing picked folds down to its title, still open)
+  const pinned = k => secEl[k].querySelectorAll(".msi .row.sel, .msi .row.act");
+  const measure = () => {
+    const list = SECS.filter(k => !secEl[k].hidden).map(k => {
+      const msi = secEl[k].querySelector(".msi"), row = msi.querySelector(".row"), rowH = row ? row.offsetHeight : 28;
+      let content = msi.offsetHeight; msi.querySelectorAll(".kids").forEach(w => { content += +w.dataset.to - w.offsetHeight; });
+      return { k, content, min: pinned(k).length * rowH };
+    });
+    const head = list.length ? secEl[list[0].k].querySelector(".msh").offsetHeight || 30 : 30;
+    return { list, H: tr.clientHeight, o: { head, open: !!query } };
+  };
+  let secNow = null;   // what is drawn: the list, the height and the layout, where a drag starts from
+  // why: "drag" and "resize" follow the pointer and the window; anything else that changes a height (a picked row, a tree opened, a
+  // search) glides along the app's curve
+  const lay = why => {
+    const m = measure(), Lo = layoutSecs(m.list, secSt, m.H, m.o), was = secNow && secNow.L.h; secNow = { ...m, L: Lo };
+    if (was && why !== "drag" && why !== "resize" && !document.documentElement.classList.contains("hy-splitting") && SECS.some(k => (Lo.h[k] || 0) !== (was[k] || 0))) glide();
+    for (const k of SECS) {
+      const s = secEl[k], sh = !!Lo.shut[k];
+      s.classList.toggle("shut", sh); s.classList.toggle("fixed", !sh && secSt[k].size != null); s.querySelector(".msh").setAttribute("aria-expanded", String(!sh));
+      if (!s.hidden) body(k).style.height = (Lo.h[k] || 0) + "px";
+    }
+    // a squeezed section keeps its active or selected row in view
+    for (const x of m.list) {
+      const h = Lo.h[x.k] || 0, r = pinned(x.k)[0], b = body(x.k); if (!r || h >= x.content) continue;
+      const top = r.offsetTop, rh = r.offsetHeight;
+      if (top < b.scrollTop || top + rh > b.scrollTop + h) b.scrollTop = Math.max(0, top - Math.max(0, (h - rh) / 2));
+    }
+    // a line stands between two shown sections; its handle works only between two open ones
+    tr.querySelectorAll(".msp").forEach(sp => {
+      const k = sp.dataset.before, i = m.list.findIndex(x => x.k === k);
+      sp.hidden = i < 1; sp.classList.toggle("off", !Lo.handles[k]);
+    });
+    markCams();
+  };
+  // the active camera, the one the card looks through (owner 2026-10-07: «почему я не вижу, какая камера активна?»): its row is marked
+  // whatever is selected (a dot, its name at full contrast, the «card» chip); the selected row keeps the list's selection. A double click
+  // on another camera makes it the active one
+  const markCams = () => {
+    const act = L.camId();
+    for (const r of tr.querySelectorAll(".row[data-cam]")) {
+      const on = r.dataset.cam === act; r.classList.toggle("act", on);
+      r.title = on ? t("Active camera: the card looks through it") : t("Double-click: make it active");
+    }
+  };
+  // two clicks on one camera's row, counted here: the first click redraws the list, so the browser's dblclick lands on a new row and is lost
+  let camClick = null;
+  tr.addEventListener("click", ev => {
+    const r = ev.target.closest(".row[data-cam]"); if (!r || ev.target.closest(".acts")) { camClick = null; return; }
+    const id = r.dataset.cam, now = performance.now(), twice = camClick && camClick.id === id && now - camClick.at < 450;
+    camClick = twice ? null : { id, at: now };
+    if (twice && id !== L.camId()) { ev.stopImmediatePropagation(); setCamera(L, id); }
+  }, true);
+  const fold = k => {
+    const m = measure(); secSt = foldSecs(m.list, secSt, m.H, k, m.o); saveSecs(); glide(); lay("fold");
+  };
+  // a fold and a double click change the heights along the app's curve; a drag, a window resize and a new row do not glide
+  const glide = () => { tr.classList.add("glide"); clearTimeout(tr._g); tr._g = setTimeout(() => tr.classList.remove("glide"), 360); };
+  new ResizeObserver(() => { if (tr.isConnected) lay("resize"); }).observe(tr);   // a taller or shorter window gives the stack its new height
+  // the rows' height is measured anew whenever it changes, whatever changed it (a tree opened, a search, «all nodes», a thing added); a frame
+  // later, so WebKit sees no ResizeObserver loop
+  const rowsRo = new ResizeObserver(() => requestAnimationFrame(() => { if (tr.isConnected) lay("content"); }));
+  SECS.forEach(k => rowsRo.observe(secEl[k].querySelector(".msi")));
+  // a tree's rows glide open and shut (owner 2026-10-07: «когда раскладываешь объект, тоже нет плавной анимации»): the rows under the
+  // row are wrapped while they move (one height for 87 rows, not 87), the chevron turns with them, the wrapper goes when they are there
+  const KIDS_MS = 240, depth = r => r.querySelectorAll(":scope > .g").length;
+  const rowsUnder = r => { const d = depth(r), out = []; for (let n = r.nextElementSibling; n && n.classList.contains("row") && depth(n) > d; n = n.nextElementSibling) out.push(n); return out; };
+  const wrapKids = (rows, from, to) => {
+    const w = document.createElement("div"); w.className = "kids"; w.dataset.to = to; rows[0].before(w); w.append(...rows);
+    w.style.height = from + "px"; void w.offsetHeight; w.style.transition = `height ${KIDS_MS}ms cubic-bezier(.32,.72,0,1)`; w.style.height = to + "px";
+    return w;
+  };
+  const rowOf = u => tr.querySelector(`.row[data-u="${CSS.escape(u)}"]`);
+  tr.addEventListener("click", ev => {
+    const o = ev.target.closest("[data-open]"); if (!o) return;
+    ev.stopImmediatePropagation();
+    const u = o.dataset.open, opening = !L.open.has(u), still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (opening) {
+      L.open.add(u); tree(); if (still) return;
+      const r = rowOf(u), kids = r ? rowsUnder(r) : []; if (!kids.length) return;
+      r.classList.add("closed"); void r.offsetHeight; r.classList.remove("closed");   // the chevron turns from where it was
+      const w = wrapKids(kids, 0, kids.reduce((n, x) => n + x.offsetHeight, 0));
+      setTimeout(() => { if (w.isConnected) { w.replaceWith(...w.childNodes); lay("content"); } }, KIDS_MS + 30);
+    } else {
+      const r = rowOf(u), kids = r && !still ? rowsUnder(r) : [];
+      if (!kids.length) { L.open.delete(u); tree(); return; }
+      r.classList.add("closed"); wrapKids(kids, kids.reduce((n, x) => n + x.offsetHeight, 0), 0); lay("content");
+      setTimeout(() => { L.open.delete(u); tree(); }, KIDS_MS + 30);
+    }
+  }, true);
+  tr.querySelectorAll(".msp").forEach(sp => window.hySplit && window.hySplit(sp, {
+    start: () => (secNow && secNow.L.handles[sp.dataset.before] ? { ...secNow, st: secSt } : null),
+    move: (dy, c) => { if (!c) return; secSt = dragSecs(c.list, c.st, c.H, sp.dataset.before, dy, c.L, c.o); lay("drag"); },
+    end: c => { if (c) saveSecs(); },
+    reset: () => { if (!secNow) return; secSt = resetSecs(secNow.list, secSt, sp.dataset.before); saveSecs(); glide(); lay("reset"); },
+  }));
   const byUuid = u => L.view.scene.getObjectByProperty("uuid", u);
   const markTree = () => root.querySelectorAll(".tr .row[data-u]").forEach(r => { const n = byUuid(r.dataset.u); r.classList.toggle("hov", !!(L.hov && n && (n === L.hov || chainOf(n).includes(L.hov)))); });
   q(".tr").addEventListener("click", ev => {
+    const h = ev.target.closest(".msh"); if (h) return fold(h.parentNode.dataset.s);
     const o = ev.target.closest("[data-open]"); if (o) { const u = o.dataset.open; L.open.has(u) ? L.open.delete(u) : L.open.add(u); return tree(); }
     const v = ev.target.closest("[data-eye]"); if (v) return toggleSeen(L, byUuid(v.dataset.eye));
-    const lk = ev.target.closest("[data-lock]"); if (lk) { const x = findAny(doc(), lk.dataset.lock); if (x) { x.locked = !x.locked || undefined; if (!x.locked) delete x.locked; if (x.locked && L.sel && unitOf(L.sel) && unitOf(L.sel).userData.id === x.id) pick(L, null); L.changed("lock", true); tree(); } return; }
-    const c = ev.target.closest("[data-cam]"); if (c) { const icon = L.icons.get(c.dataset.cam); if (icon) return pick(L, icon); L.camSel = c.dataset.cam; return panel("camera"); }
+    const lk = ev.target.closest("[data-lock]"); if (lk) return lockThing(lk.dataset.lock);
+    const add = ev.metaKey || ev.ctrlKey || ev.shiftKey;
+    const c = ev.target.closest("[data-cam]"); if (c) { const icon = L.icons.get(c.dataset.cam); if (icon) return add ? choose(icon) : (L.multi = null, pick(L, icon)); L.camSel = c.dataset.cam; return panel("camera"); }
     const r = ev.target.closest(".row[data-u]"); if (!r) return;
-    const n = byUuid(r.dataset.u); if (!n) return; const ch = n.userData.kind ? [n] : chainOf(n); pick(L, ch[ch.length - 1].isMesh ? head(unitOf(n), ch[ch.length - 1]) : n);
+    const n = byUuid(r.dataset.u); if (!n) return; const ch = n.userData.kind ? [n] : chainOf(n), to = ch[ch.length - 1].isMesh ? head(unitOf(n), ch[ch.length - 1]) : n;
+    if (add) return choose(to);
+    L.multi = null; pick(L, to);
+  });
+  // ⌘ or ⇧ click: the row joins the chosen ones or leaves them; the last one added is the pick (the panels', the gizmo's)
+  const choose = n => {
+    const cur = many() || (L.sel ? [L.sel] : []), rest = cur.filter(x => x !== n), next = cur.includes(n) ? rest : [n, ...rest];
+    L.multi = null; pick(L, next[0] || null); L.multi = next.length > 1 ? next : null; tree(); L.need();
+  };
+  // a locked thing stays picked: its panel shows it locked and grey, the gizmo leaves it (attach)
+  const setLock = (x, on) => { if (on) x.locked = true; else delete x.locked; if (L.sel && ((unitOf(L.sel) && unitOf(L.sel).userData.id === x.id) || L.sel.userData.cam === x.id)) { attach(L); panel(); } };
+  const lockThing = id => { const x = findAny(doc(), id); if (!x) return; setLock(x, !x.locked); L.changed("lock", true); L.lockGo = id; tree(); };
+  // Photoshop's eye drag (Hyimg's ui/eyedrag.js, owner 2026-10-07): a press on an eye or a lock switches its row, every row passed while
+  // held takes the same state, past a section's edge its rows scroll on; the scene's undo gets one step for the drag. The click handler
+  // above stays for the keys
+  if (window.hyEyeDrag) {
+    let seenQ = Promise.resolve();
+    const redraw = () => { seenQ = seenQ.then(() => L.view.apply(doc())).then(() => { tree(); L.need(); }); };
+    // a press on one of several chosen rows sets every chosen row (owner 2026-10-07: «Shift + выбор двух и более объектов ... блокирую все
+    // выбранные или выключаю все выбранные»); a row outside the choice switches alone
+    const chosenRows = (b, done, key) => { const r = b.closest(".row"); if (!r.classList.contains("sel") || !many()) return [];
+      return [...q(".tr").querySelectorAll(".row.sel")].filter(x => x !== r).map(x => x.querySelector(key)).filter(x => x && !done.has(x.dataset.eye || x.dataset.lock)); };
+    window.hyEyeDrag(q(".tr"), { selector: "[data-eye]", key: b => b.dataset.eye, get: b => !b.closest(".row").classList.contains("hidden"),
+      also: (b, on, done) => { let k = 0; chosenRows(b, done, "[data-eye]").forEach(x => { done.add(x.dataset.eye); const n = byUuid(x.dataset.eye); if (!n || seenFlag(L, n) === !on) return; setSeen(L, n, !on); x.closest(".row").classList.toggle("hidden", !on); k++; }); if (k) redraw(); return k; },
+      set: (b, on) => { const n = byUuid(b.dataset.eye); if (!n) return; setSeen(L, n, !on); b.closest(".row").classList.toggle("hidden", !on); redraw(); },
+      end: k => { if (k) seenQ.then(() => L.changed("seen", true)); } });
+    window.hyEyeDrag(q(".tr"), { selector: "[data-lock]", key: b => b.dataset.lock, get: b => { const x = findAny(doc(), b.dataset.lock); return !!(x && x.locked); },
+      also: (b, on, done) => { let k = 0; chosenRows(b, done, "[data-lock]").forEach(x => { done.add(x.dataset.lock); const r = findAny(doc(), x.dataset.lock); if (!r || !!r.locked === on) return; setLock(r, on); x.classList.toggle("keep", on); const ic = x.querySelector(".hy-lock"); if (ic) ic.classList.toggle("locked", on); k++; }); return k; },
+      set: (b, on) => { const x = findAny(doc(), b.dataset.lock); if (!x) return; setLock(x, on); b.classList.toggle("keep", on);
+        const ic = b.querySelector(".hy-lock"); if (ic) ic.classList.toggle("locked", on); else b.innerHTML = lockIco(on, ""); },   // in place: the shackle swings
+      end: k => { if (k) L.changed("lock", true); setTimeout(() => { if (q(".tr").isConnected) tree(); }, 300); } });   // the list redraws once the shackle has moved
+  }
+
+  // -- a row's right click: the app's own menu (the board's #ctx, its items ui/menu.js hyMenuItem) with the colour row on top, the sticky
+  // notes' circles and «no colour» first. The colour is the scene file's (ui.colors), kept apart from the scene's undo and reset: it is
+  // how the person finds things, not a change of the scene. A right click on one of several chosen rows colours them all (owner 2026-10-07)
+  const setNav = (keys, name) => {
+    const d = doc(), ui = d.ui = d.ui || {}, c = ui.colors = ui.colors || {};
+    for (const key of keys) if (name) c[key] = name; else delete c[key];
+    if (!Object.keys(c).length) delete ui.colors; if (!Object.keys(ui).length) delete d.ui;
+    save(L.path, true); tree();
+  };
+  // Esc closes the menu (the board's own rule) and nothing more: the editor's Esc would drop the pick too
+  let ctxMine = false;
+  addEventListener("keydown", e => { if (e.key === "Escape" && ctxMine) { ctxMine = false; e.stopPropagation(); } }, { capture: true, signal: L.ac.signal });
+  document.addEventListener("pointerdown", e => { if (!e.target.closest("#ctx")) ctxMine = false; }, { capture: true, signal: L.ac.signal });
+  q(".tr").addEventListener("contextmenu", ev => {
+    const r = ev.target.closest(".row[data-k]"); const m = document.getElementById("ctx");
+    ev.preventDefault(); ev.stopPropagation(); if (!r || !r.dataset.k || !m) return;
+    const key = r.dataset.k, cur = navOf()[key] || "", n = r.dataset.u ? byUuid(r.dataset.u) : null, rec = findAny(doc(), key);
+    const keys = r.classList.contains("sel") && many() ? [...new Set([...q(".tr").querySelectorAll(".row.sel[data-k]")].map(x => x.dataset.k).filter(Boolean))] : [key];
+    const items = [], mi = k => (window.hyToolIcon && hyToolIcon(k, 15)) || "";
+    if (n) items.push(hyMenuItem('data-m3="seen"', mi(n.visible === false ? "eye" : "eyeoff"), n.visible === false ? t("Show") : t("Hide")));
+    if (rec && n && unitOf(n) === n) items.push(hyMenuItem('data-m3="lock"', mi(rec.locked ? "lockOpen" : "lock"), rec.locked ? t("Unlock") : t("Lock")));
+    const cols = window.hyMenuColors ? hyMenuColors(cur) : `<div class="msw">${["", ...Object.keys(OLD_COLS)].map(k => `<button data-color="${k}" style="--c:${OLD_COLS[k] || "transparent"}" aria-label="${k || t("No colour")}"></button>`).join("")}</div>`;
+    m.innerHTML = cols + items.join("");
+    m.onclick = e => {
+      const b = e.target.closest("[data-color],[data-m3]"); if (!b) return; m.classList.remove("open"); ctxMine = false;
+      const pc = window.hyColorPick ? hyColorPick(e) : b.dataset.color ?? null;   // Hyimg's own reading of the swatch row; an older one: the button's
+      if (pc !== null) return setNav(keys, pc);
+      if (b.dataset.m3 === "seen") return toggleSeen(L, n);
+      if (b.dataset.m3 === "lock") return lockThing(key);
+    };
+    m.classList.add("open"); ctxMine = true;
+    const w = m.offsetWidth, hh = m.offsetHeight;
+    m.style.left = Math.min(ev.clientX, innerWidth - w - 8) + "px"; m.style.top = Math.min(ev.clientY, innerHeight - hh - 8) + "px";
   });
   q(".tr").addEventListener("mouseover", ev => { const r = ev.target.closest(".row[data-u]"); const n = r ? byUuid(r.dataset.u) : null; if (n !== L.hov) { L.hov = n; L.need(); } });
   q(".tr").addEventListener("mouseleave", () => { L.hov = null; L.need(); });
@@ -754,9 +1069,9 @@ function buildUI(L) {
   const dial = (name, cfg, apply, onAction) => {
     if (live !== L) return;   // a closed session never draws a panel: DialKit shows every panel it knows in every root
     if (L.kit) L.kit.destroy();
-    if (!Object.keys(cfg).some(k => k.startsWith("Сбросить"))) cfg["Сбросить"] = { type: "action" };
-    const act = a => { if (a.endsWith("Сбросить")) return resetPane(L); if (onAction) onAction(a); };
-    L.kit = createDialKit(name, cfg, { id: `m3-${++dialN}`, onAction: act });   // a fresh id: DialKit shares values between panels of one id
+    if (!Object.keys(cfg).some(k => k.startsWith(K.reset))) cfg[K.reset] = { type: "action" };
+    const act = a => { if (a.endsWith(K.reset)) return resetPane(L); if (onAction) onAction(a); };
+    L.kit = createDialKit(name, cfg, { id: `m3-${Date.now().toString(36)}-${++dialN}`, onAction: act });   // a fresh id, also across sessions: DialKit keeps an id's values
     requestAnimationFrame(() => resetState(L));
     // DialKit hands changes over in batches: the last value of a drag can arrive while the editor itself writes the panel (quiet below).
     // Dropped then, it was applied at the next touch of any control (owner 2026-10-04: the transparency moved the camera; it was the end
@@ -772,16 +1087,26 @@ function buildUI(L) {
   const edit = async fn => { fn(doc()); await L.view.apply(doc()); L.need(); L.changed("edit"); };
   const trs = n => { const d = 180 / Math.PI, e = new THREE.Euler().setFromQuaternion(n.quaternion, "XYZ");
     return { pos: { X: r1(n.position.x * 100), Y: r1(-n.position.z * 100), Z: r1(n.position.y * 100) }, rot: { X: r1(e.x * d), Y: r1(-e.z * d), Z: r1(e.y * d) } }; };
-  const sync = () => { const p = picked(L); if (!L.kit || p.kind !== "object") return; const t = trs(p.unit); quiet({ "Положение, см": t.pos, "Поворот, °": t.rot }); };
-  const inf = html => { q(".inf").innerHTML = html || ""; };
-  const ih = (kind, title, sub) => { q(".ih").innerHTML = `${ico(SVG[kind] ? kind : "mesh")}<div><b>${esc(title)}</b>${sub ? `<span>${esc(sub)}</span>` : ""}</div>`; };
+  const sync = () => { const p = picked(L); if (!L.kit || p.kind !== "object") return; const tr = trs(p.unit); quiet({ [K.pos]: tr.pos, [K.rot]: tr.rot }); };
+  const inf = html => { q(".inf").innerHTML = (L.why ? `<p class="hy-hint m3why">${lockIco(true, "")}<span>${esc(L.why)}</span></p>` : "") + (html || ""); };
+  // why the pick's settings are grey (owner 2026-10-07: «и настройки серым цветом disabled для них»): locked itself, or a part of a locked
+  // or hidden thing; null while they can change
+  const whyGrey = p => {
+    const x = p.kind === "camera" ? findAny(doc(), p.id) : p.id ? findAny(doc(), p.id) : null; if (!x) return null;
+    if (p.kind !== "layer") return x.locked ? t("Locked") : null;
+    if (x.locked) return t("Locked by its group");
+    for (let a = p.node.parent; a; a = a.parent) { if (a.visible === false) return t("Hidden by its group"); if (a === p.unit) break; }
+    return x.hidden ? t("Hidden by its group") : null;
+  };
+  const ih = (kind, title, sub) => { q(".ih").innerHTML = `${ico(hasIco(kind) ? kind : "mesh")}<div><b>${esc(title)}</b>${sub ? `<span>${esc(sub)}</span>` : ""}</div>`; };
   const panel = force => {
-    if (L.kit) { L.kit.destroy(); L.kit = null; } inf("");
-    const p = picked(L), k = force || p.kind; L.paneKind = k === "object" || k === "layer" || k === "light" || k === "camera" ? k : "scene";
-    if (k === "object" || k === "layer") { const o = doc().objects.find(x => x.id === p.id); ih(k === "layer" ? (p.node.isMesh ? "mesh" : "group") : (o && o.src && o.src.type === "model" ? "model" : (o && o.src && o.src.shape) || "mesh"), k === "layer" ? (p.node.userData.label || p.node.name || "Слой") : o ? o.name : "", k === "layer" ? `слой «${o ? o.name : ""}»` : "предмет"); return objPane(); }
-    if (k === "light") { const l = doc().lights.find(x => x.id === p.id); ih("light", l ? l.name : "Свет", l ? LIGHT_NAMES[l.type].toLowerCase() : ""); return lightPane(); }
-    if (k === "camera") { const c = doc().cameras.find(x => x.id === (p.kind === "camera" ? p.id : L.camSel)); ih("camera", c ? c.name : "Камера", c && c.id === L.camId() ? "камера карточки" : "камера"); return camPane(); }
-    ih("model", "Сцена", "ничего не выбрано"); scenePane();
+    if (!force && L.lmSel && L.look) return L.look.pane();   // a material or the card's variant (variants.js, materials.js)
+    if (L.kit) { L.kit.destroy(); L.kit = null; }
+    const p = picked(L), k = force || p.kind; L.why = force ? null : whyGrey(p); q(".dk").classList.toggle("m3dis", !!L.why); inf(""); L.paneKind = k === "object" || k === "layer" || k === "light" || k === "camera" ? k : "scene";
+    if (k === "object" || k === "layer") { const o = doc().objects.find(x => x.id === p.id); ih(k === "layer" ? (p.node.isMesh ? "mesh" : "group") : (o && o.src && o.src.type === "model" ? "model" : (o && o.src && o.src.shape) || "mesh"), k === "layer" ? (p.node.userData.shown || p.node.userData.label || p.node.name || t("Layer")) : o ? o.name : "", k === "layer" ? t("layer of “{name}”", { name: o ? o.name : "" }) : t("object")); return objPane(); }
+    if (k === "light") { const l = doc().lights.find(x => x.id === p.id); ih("light", l ? l.name : t("Light"), l ? t(LIGHT_NAMES[l.type]).toLowerCase() : ""); return lightPane(); }
+    if (k === "camera") { const c = doc().cameras.find(x => x.id === (p.kind === "camera" ? p.id : L.camSel)); ih("camera", c ? c.name : t("Camera"), c && c.id === L.camId() ? t("active camera") : t("camera")); return camPane(); }
+    ih("model", t("Scene"), t("nothing selected")); scenePane();
   };
 
   const objPane = () => {
@@ -789,118 +1114,176 @@ function buildUI(L) {
     const o = doc().objects.find(x => x.id === p.id); if (!o) return;
     if (p.kind === "layer") {
       const n = p.node, ov = (o.layers || {})[p.path] || {}, m0 = (() => { let m = null; n.traverse(x => { if (!m && x.isMesh) m = x; }); return m; })();
-      inf(`<div class="real">${esc(o.name)} › ${esc(p.path.split("/").join(" › "))}${m0 && m0.userData.base && m0.userData.base.mat.name ? `<br>материал в файле: ${esc(m0.userData.base.mat.name)}` : ""}</div>`);
+      inf(`<div class="real">${esc(o.name)} › ${esc(shownPath(p.path).join(" › "))}${m0 && m0.userData.base && m0.userData.base.mat.name ? `<br>${esc(t("material in the file: {name}", { name: m0.userData.base.mat.name }))}` : ""}</div>`);
       const color = ov.color || (m0 && m0.material.color ? "#" + m0.material.color.getHexString() : "#b8b8b4");
-      return dial(n.userData.label || n.name || "Слой", { "Цвет": color, "Материал": { type: "select", options: Object.values(FIN_RU), default: FIN_RU[ov.finish || ""] }, "Видно": !ov.hidden, "Сбросить слой": { type: "action" } }, v => edit(() => {
+      return dial(n.userData.shown || n.userData.label || n.name || t("Layer"), { [K.color]: color, [K.material]: { type: "select", options: Object.values(FIN_NAME), default: FIN_NAME[ov.finish || ""] }, [K.visible]: !ov.hidden, [K.resetLayer]: { type: "action" } }, v => edit(() => {
         const L2 = o.layers = o.layers || {}, cur = L2[p.path] = L2[p.path] || {};
-        if (v["Цвет"] !== color || cur.color) cur.color = v["Цвет"]; cur.finish = FIN_EN[v["Материал"]] || undefined; cur.hidden = !v["Видно"] || undefined;
+        if (v[K.color] !== color || cur.color) cur.color = v[K.color]; cur.finish = FIN_KEY[v[K.material]] || undefined; cur.hidden = !v[K.visible] || undefined;
         for (const k of Object.keys(cur)) if (cur[k] === undefined) delete cur[k]; if (!Object.keys(cur).length) delete L2[p.path];
       }).then(tree), () => edit(() => { if (o.layers) delete o.layers[p.path]; }).then(() => { tree(); panel(); }));
     }
-    const u = p.unit, t = trs(u), s = o.src || {}, cfg = { "Имя": { type: "text", default: o.name } };
-    cfg["Положение, см"] = { X: [t.pos.X, -300, 300, 0.1], Y: [t.pos.Y, -300, 300, 0.1], Z: [t.pos.Z, -100, 300, 0.1] };
-    cfg["Поворот, °"] = { X: [t.rot.X, -180, 180, 1], Y: [t.rot.Y, -180, 180, 1], Z: [t.rot.Z, -180, 180, 1] };
+    const u = p.unit, tr = trs(u), s = o.src || {}, cfg = { [K.name]: { type: "text", default: o.name } };
+    cfg[K.pos] = { X: [tr.pos.X, -300, 300, 0.1], Y: [tr.pos.Y, -300, 300, 0.1], Z: [tr.pos.Z, -100, 300, 0.1] };
+    cfg[K.rot] = { X: [tr.rot.X, -180, 180, 1], Y: [tr.rot.Y, -180, 180, 1], Z: [tr.rot.Z, -180, 180, 1] };
     if (s.type === "prim") {
       const sz = s.size.map(x => r1(x * 100));
-      cfg["Размер, см"] = s.shape === "sphere" ? { "Диаметр": [sz[0], 0.5, 300, 0.1] } : s.shape === "cylinder" ? { "Диаметр": [sz[0], 0.5, 300, 0.1], "Высота": [sz[2], 0.5, 300, 0.1] } : s.shape === "plane" ? { X: [sz[0], 1, 1000, 0.5], Y: [sz[1], 1, 1000, 0.5] } : { X: [sz[0], 0.5, 300, 0.1], Y: [sz[1], 0.5, 300, 0.1], Z: [sz[2], 0.5, 300, 0.1] };
-    } else cfg["Масштаб, %"] = [Math.round((o.scale || [1])[0] * 100), 1, 500, 1];
-    if (s.type !== "model") cfg["Цвет"] = o.color || "#b8b8b4";
-    cfg["Материал"] = { type: "select", options: Object.values(FIN_RU), default: FIN_RU[o.finish || ""] };
-    cfg["Только тень"] = !!o.shadow_only; cfg["Видно"] = !o.hidden;
-    cfg["Для генерации"] = { "Маска": (L.view.units.get(o.id) || {}).mask || o.mask || "#2f6fe4", "Для ИИ": { type: "text", default: o.ai || "" } };
-    cfg["Удалить"] = { type: "action" };
-    inf(`<div class="real">${esc(s.type === "model" ? `модель ${s.model}` : s.type === "file" ? s.path : s.type === "node" ? "геометрия из Blender (scene.glb)" : "простая фигура")}</div>`);
+      cfg[K.size] = s.shape === "sphere" ? { [K.diam]: [sz[0], 0.5, 300, 0.1] } : s.shape === "cylinder" ? { [K.diam]: [sz[0], 0.5, 300, 0.1], [K.height]: [sz[2], 0.5, 300, 0.1] } : s.shape === "plane" ? { X: [sz[0], 1, 1000, 0.5], Y: [sz[1], 1, 1000, 0.5] } : { X: [sz[0], 0.5, 300, 0.1], Y: [sz[1], 0.5, 300, 0.1], Z: [sz[2], 0.5, 300, 0.1] };
+    } else cfg[K.scale] = [Math.round((o.scale || [1])[0] * 100), 1, 500, 1];
+    if (s.type !== "model") cfg[K.color] = o.color || "#b8b8b4";
+    cfg[K.material] = { type: "select", options: Object.values(FIN_NAME), default: FIN_NAME[o.finish || ""] };
+    cfg[K.shadow] = !!o.shadow_only; cfg[K.visible] = !o.hidden;
+    cfg[K.gen] = { [K.mask]: (L.view.units.get(o.id) || {}).mask || o.mask || "#2f6fe4", [K.ai]: { type: "text", default: o.ai || "" } };
+    cfg[K.del] = { type: "action" };
+    inf(`<div class="real">${esc(s.type === "model" ? t("model {id}", { id: s.model }) : s.type === "file" ? s.path : s.type === "node" ? t("geometry from Blender (scene.glb)") : t("simple shape"))}</div>`);
     dial(o.name, cfg, v => edit(() => {
-      if (v["Имя"] !== o.name) { o.name = v["Имя"]; }
-      const P = v["Положение, см"], R = v["Поворот, °"], d = Math.PI / 180;
+      if (v[K.name] !== o.name) { o.name = v[K.name]; }
+      const P = v[K.pos], R = v[K.rot], d = Math.PI / 180;
       u.position.set(P.X / 100, P.Z / 100, -P.Y / 100); u.quaternion.setFromEuler(new THREE.Euler(R.X * d, R.Z * d, -R.Y * d, "XYZ")); readBack(L.view, o.id);
-      if (v["Масштаб, %"]) o.scale = [1, 1, 1].map(() => v["Масштаб, %"] / 100);
-      const S = v["Размер, см"]; if (S) { const z = s.size; if (s.shape === "sphere") s.size = [S["Диаметр"] / 100, S["Диаметр"] / 100, S["Диаметр"] / 100]; else if (s.shape === "cylinder") s.size = [S["Диаметр"] / 100, S["Диаметр"] / 100, S["Высота"] / 100]; else if (s.shape === "plane") s.size = [S.X / 100, S.Y / 100, 0]; else s.size = [S.X / 100, S.Y / 100, S.Z / 100]; if (JSON.stringify(z) === JSON.stringify(s.size)) s.size = z; }
-      if (v["Цвет"]) o.color = v["Цвет"];
-      o.finish = FIN_EN[v["Материал"]] || undefined; if (!o.finish) delete o.finish;
-      o.shadow_only = v["Только тень"] || undefined; if (!o.shadow_only) delete o.shadow_only;
-      o.hidden = !v["Видно"] || undefined; if (!o.hidden) delete o.hidden;
-      o.mask = v["Для генерации"]["Маска"]; o.ai = v["Для генерации"]["Для ИИ"];
+      if (v[K.scale]) o.scale = [1, 1, 1].map(() => v[K.scale] / 100);
+      const S = v[K.size]; if (S) { const z = s.size; if (s.shape === "sphere") s.size = [S[K.diam] / 100, S[K.diam] / 100, S[K.diam] / 100]; else if (s.shape === "cylinder") s.size = [S[K.diam] / 100, S[K.diam] / 100, S[K.height] / 100]; else if (s.shape === "plane") s.size = [S.X / 100, S.Y / 100, 0]; else s.size = [S.X / 100, S.Y / 100, S.Z / 100]; if (JSON.stringify(z) === JSON.stringify(s.size)) s.size = z; }
+      if (v[K.color]) o.color = v[K.color];
+      o.finish = FIN_KEY[v[K.material]] || undefined; if (!o.finish) delete o.finish;
+      o.shadow_only = v[K.shadow] || undefined; if (!o.shadow_only) delete o.shadow_only;
+      o.hidden = !v[K.visible] || undefined; if (!o.hidden) delete o.hidden;
+      o.mask = v[K.gen][K.mask]; o.ai = v[K.gen][K.ai];
     }).then(tree), () => removeThing(L, o.id));
   };
-  const lightPane = () => {
-    const d = doc();
-    const p = picked(L), l = d.lights.find(x => x.id === (p.kind === "light" ? p.id : L.lightSel)) || d.lights[0]; L.lightSel = l.id;
-    const max = l.type === "sun" ? 20 : 400, cfg = {
-      "Источник": { type: "select", options: d.lights.map(x => ({ value: x.id, label: x.name })), default: l.id },
-      "Тип": { type: "select", options: Object.entries(LIGHT_NAMES).map(([value, label]) => ({ value, label })), default: l.type },
-      [`Мощность, ${l.type === "sun" ? "Вт/м²" : "Вт"}`]: [Math.min(max, l.power), 0, max, l.type === "sun" ? 0.1 : 1], "Цвет": hexOf(l.color || [1, 1, 1]),
+  const lightPane = () => lightPaneOf(L, { t, K, doc, picked, dial, edit, inf, helpers, pick, panel, tree, removeThing, setTool, coordCfg, coordVals, coordSet, sameVals,
+    LIGHT_NAMES, LIGHT_W, hexOf, linOf, studio: !!L.look, blenderSees: () => !!L.look && L.look.light() === "own", useOwn: () => L.look && L.look.setLight("own") });
+  // -- one camera block for the Scene panel (the card's camera) and a camera's own panel (owner 2026-10-07: «почему настройки разные в
+  // камере и в начальной главной настройке, Wide ↔ isometric отсутствует»): the same controls in the same order. What does not apply to a
+  // camera the card does not look through stays in its place, greyed, its reason in its tooltip (greyCtl)
+  const camBlock = c => {
+    const d = doc(), it = HY.board.items[L.id], on = c.id === L.camId(), FREE = t("Free"), ratio = it.lock || FREE;
+    let cur = orbitVals(orbitOf(L, c)), crd = coordVals(c), dollyCur = dollyOf(c.lens);   // what the controls show (see quiet: a rounded value is no move)
+    const cfg = {
+      [K.camera]: { type: "select", options: d.cameras.map(x => ({ value: x.id, label: x.name })), default: L.camId() },
+      [K.lens]: [Math.round(c.lens), DOLLY[0], DOLLY[1], 1], [K.frame]: { type: "select", options: [FREE, ...RATIOS], default: ratio },
+      [K.dolly]: [dollyCur, 0, 100, 1],
+      [K.campos]: orbitCfg(orbitOf(L, c)), [K.coords]: coordCfg(c), [K.cammore]: camMoreCfg(c),
     };
-    if (l.type === "area") cfg["Размер, см"] = [Math.round((l.size || 0.5) * 100), 5, 300, 1];
-    if (l.type === "spot") cfg["Конус, °"] = [Math.round(l.spot_size || 45), 5, 170, 1];
-    cfg["Видно"] = !l.hidden; cfg["Координаты"] = coordCfg(l); let crd = coordVals(l); cfg["Двигать"] = { type: "action" }; cfg["Удалить"] = { type: "action" };
-    dial(l.name, cfg, v => {
-      const C = v["Координаты"]; if (C && !sameVals(C, crd)) { crd = JSON.parse(JSON.stringify(C)); coordSet(l, C); return edit(() => {}).then(() => { helpers(L); L.need(); }); }
-      if (v["Источник"] !== l.id) { const u = L.view.units.get(v["Источник"]); return setTimeout(() => pick(L, u && u.obj, true)); }
-      if (v["Тип"] !== l.type) { return edit(() => { l.type = v["Тип"]; l.power = LIGHT_W[l.type]; }).then(() => { helpers(L); panel(); tree(); }); }
-      edit(() => { l.power = v[Object.keys(v).find(k => k.startsWith("Мощность"))]; l.color = linOf(v["Цвет"]); if (v["Размер, см"]) l.size = l.size_y = v["Размер, см"] / 100; if (v["Конус, °"]) l.spot_size = v["Конус, °"]; l.hidden = !v["Видно"] || undefined; if (!l.hidden) delete l.hidden; });
-    }, a => { if (a.endsWith("Удалить")) removeThing(L, l.id); else { pick(L, L.view.units.get(l.id).obj, true); setTool(L, "translate"); } });
+    const moved = () => { if (on) L.recam(); else { helpers(L); L.need(); } L.changed("camera"); };
+    // true when the change was the camera's; the Scene panel goes on with its own controls otherwise
+    const apply = v => {
+      const KP = v[K.campos];
+      if (KP && Object.keys(cur).some(k => KP[k] !== cur[k])) { cur = { ...KP }; setOrbit(L, c, KP); crd = coordVals(c); quiet({ [K.coords]: crd }); return true; }
+      const C = v[K.coords]; if (C && !sameVals(C, crd)) { crd = JSON.parse(JSON.stringify(C)); coordSet(c, C); moved(); cur = orbitVals(orbitOf(L, c)); quiet({ [K.campos]: cur }); return true; }
+      if (camMoreSet(c, v[K.cammore])) { moved(); return true; }
+      if (v[K.camera] !== L.camId()) { setTimeout(() => setCamera(L, v[K.camera])); return true; }
+      if (on && v[K.frame] !== ratio) { HY.frame(L.id, v[K.frame] === FREE ? "free" : v[K.frame]); return true; }
+      if (v[K.dolly] !== dollyCur) {   // the dolly zoom: the lens and the distance together, the lens slider follows
+        dollyCur = v[K.dolly]; dollyAny(L, c, lensOf(dollyCur)); cur = orbitVals(orbitOf(L, c)); crd = coordVals(c);
+        quiet({ [K.lens]: Math.round(c.lens), [K.campos]: cur, [K.coords]: crd }); return true;
+      }
+      if (Math.round(c.lens) !== v[K.lens]) {   // the lens alone zooms; the dolly slider shows where it now is
+        c.lens = v[K.lens]; if (on) L.recam(); else L.need(); L.changed("lens"); dollyCur = dollyOf(c.lens); quiet({ [K.dolly]: dollyCur }); return true;
+      }
+      return false;
+    };
+    const greys = on ? [] : [[K.frame, t("The frame is the card's: make this camera active to change it")]];
+    if (it.lock && !RATIOS.includes(it.lock)) cfg[K.frame].options.push(it.lock), cfg[K.frame].default = it.lock;   // W × H typed in: its own ratio
+    return { cfg, apply, greys, on };
   };
+  // the card's output size under Frame (owner 2026-10-07: «вот это в рендере я бы убрал, оно мешает, лучше это добавить где-то справа в
+  // настройках. Потому что там же тоже размер должен быть»): W × H px with the app's W ↔ H link (ui/icons.js linkWH, look.css .hy-link),
+  // the presets on the long side and ⇄ turning the frame. It is the card's (it.res, frame.js outSize): it shapes the card on the board and
+  // is the size of Blender's «Render» (blender.js); each change is one step of the board's undo. The board's frame bar is off (frameBar)
+  const camOf = () => (doc().cameras || []).find(x => x.id === L.camId());
+  L.outSize = () => outSize(HY.board.items[L.id], camOf(), doc());
+  let resLink = HY.pref("m3.reslink", "1") !== "0";
+  const setRes = (W, H) => {
+    const it = HY.board.items[L.id], before = HY.snap(), a = it.w / it.h;
+    it.res = [W, H];
+    if (Math.abs(W / H - a) > 0.01 * a) { Object.assign(it, reshape(it, W, H)); if (it.lock) it.lock = ratioKey(W, H, RATIOS); }
+    HY.commit(before, t("3D: output size {w} × {h} px", { w: W, h: H })); framed(L.id);
+  };
+  const icon = (n, z, line) => (window.hyIcon ? window.hyIcon(n, z, line) : "");
+  const sizeRow = (on, tries = 0) => requestAnimationFrame(() => {   // once DialKit has drawn the panel: under its Frame row
+    const fr = [...q(".dk").querySelectorAll(".dialkit-select-trigger")].find(x => { const l = x.querySelector(".dialkit-select-label"); return l && l.textContent.trim() === K.frame; });
+    if (!fr) { if (tries < 30) sizeRow(on, tries + 1); return; }
+    q(".dk").querySelectorAll(".m3res").forEach(x => x.remove());
+    const box = document.createElement("div"); box.className = "m3res";
+    box.innerHTML = `<div class="wh"><label><span>W</span><input data-k="w" inputmode="numeric" autocomplete="off" aria-label="${t("Width, px")}"></label>`
+      + `<button type="button" class="lk" data-link title="${t("Keep the proportions")}" aria-label="${t("Keep the proportions")}">${icon("linkWH", 16).replace("<svg", '<svg class="hy-link"')}</button>`
+      + `<label><span>H</span><input data-k="h" inputmode="numeric" autocomplete="off" aria-label="${t("Height, px")}"></label><span class="u">px</span></div>`
+      + `<div class="pre"><div class="seg">${PRESETS.map(n => `<button type="button" data-long="${n}" title="${t("{n} px on the long side", { n })}">${n}</button>`).join("")}</div>`
+      + `<button type="button" class="lk" data-flip title="${t("Turn the frame")}" aria-label="${t("Turn the frame")}">${icon("orientation", 15, 2)}</button></div>`;
+    (fr.closest(".dialkit-select-row") || fr).after(box);
+    const ins = [...box.querySelectorAll("input")], link = box.querySelector("[data-link]"), flip = box.querySelector("[data-flip]");
+    const sync = () => {
+      if (!box.isConnected) return; const s = L.outSize(), it = HY.board.items[L.id];
+      ins.forEach((x, i) => { if (document.activeElement !== x && x.value !== String(s[i])) x.value = s[i]; });
+      box.querySelectorAll("[data-long]").forEach(b => b.setAttribute("aria-pressed", String(+b.dataset.long === Math.max(...s))));
+      link.classList.toggle("on", resLink); link.setAttribute("aria-pressed", String(resLink)); flip.disabled = Math.abs(it.w - it.h) < 1;
+    };
+    L.syncRes = sync; sync(); if (window.hySeg) window.hySeg(box);
+    if (!on) {   // a camera the card does not look through: greyed with the reason, as Frame
+      box.classList.add("m3na"); box.setAttribute("aria-disabled", "true"); box.title = t("The size is the card's: make this camera active to change it");
+      for (const ev of ["pointerdown", "mousedown", "click", "keydown", "focusin"]) box.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); if (e.target.blur) e.target.blur(); }, true);
+      return;
+    }
+    const typed = x => {
+      const v = Math.round(+x.value); if (!(v >= 16 && v <= 16384)) return sync();
+      const it = HY.board.items[L.id], s = L.outSize(), k = x.dataset.k;
+      const [W, H] = resLink ? keepShape(it, k, v) : k === "w" ? [v, s[1]] : [s[0], v];
+      if (W !== s[0] || H !== s[1]) setRes(W, H); else sync();
+    };
+    ins.forEach(x => { x.addEventListener("change", () => typed(x)); x.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); typed(x); x.blur(); } else if (e.key === "Escape") { x.value = ""; sync(); x.blur(); } e.stopPropagation(); }); });
+    link.addEventListener("click", () => { resLink = !resLink; HY.setPref("m3.reslink", resLink ? "1" : "0"); sync(); });
+    box.querySelectorAll("[data-long]").forEach(b => b.addEventListener("click", () => { const it = HY.board.items[L.id], [W, H] = atLong(+b.dataset.long, it.w / it.h), s = L.outSize(); if (W !== s[0] || H !== s[1]) setRes(W, H); }));
+    flip.addEventListener("click", () => HY.frame(L.id, "flip"));
+  });
+  // a control that does not apply here: greyed, its reason in its tooltip, a press does nothing (DialKit has no disabled state of its own)
+  const greyCtl = list => requestAnimationFrame(() => {
+    for (const [label, why] of list) {
+      const el = [...q(".dk").querySelectorAll(".dialkit-select-trigger, .hy-slider")].find(x => {
+        const l = x.querySelector(".dialkit-select-label, .hy-slider-l"); return l && l.textContent.trim() === label; });
+      if (!el || el.classList.contains("m3na")) continue;
+      el.classList.add("m3na"); el.setAttribute("aria-disabled", "true"); el.title = why;
+      el.querySelectorAll("button, input").forEach(x => { x.tabIndex = -1; });
+      for (const ev of ["pointerdown", "mousedown", "click", "keydown"]) el.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); }, true);
+    }
+  });
+  // a camera's own actions (owner 2026-10-07): «Original camera» when it came from a picture (studio.angles[id].camera0), «Sync with the
+  // scene» writes its view into scene.json now (Blender and the agent's tools read it there; nothing else writes it in the background)
+  const camActs = (c, cfg) => { if (studioAngle(doc(), c.id) && studioAngle(doc(), c.id).camera0) cfg[K.original] = { type: "action" }; cfg[K.syncscene] = { type: "action" }; return cfg; };
+  const camAct = (c, a) => { if (a === K.original) { originalCamera(L, c.id); return true; } if (a === K.syncscene) { syncCamera(L, c.id); return true; } return false; };
   const camPane = () => {
     const d = doc(), p = picked(L), cardCam = L.camId(), c = d.cameras.find(x => x.id === (p.kind === "camera" ? p.id : L.camSel)) || d.cameras.find(x => x.id === cardCam); L.camSel = c.id;
-    const cfg = { "Объектив, мм": [Math.round(c.lens), DOLLY[0], DOLLY[1], 1], "Положение камеры": orbitCfg(orbitOf(L, c)), "Координаты": coordCfg(c), "Камера: дополнительно": camMoreCfg(c) };
-    if (c.id !== cardCam) cfg["Показать в карточке"] = { type: "action" };
-    cfg["Удалить"] = { type: "action" };
-    let cur = orbitVals(orbitOf(L, c)), crd = coordVals(c);
-    const moved = () => { if (c.id === cardCam) L.recam(); else { helpers(L); L.need(); } L.changed("camera"); };
-    dial(c.name, cfg, v => {
-      const K = v["Положение камеры"];
-      if (K && Object.keys(cur).some(k => K[k] !== cur[k])) { cur = { ...K }; setOrbit(L, c, K); crd = coordVals(c); quiet({ "Координаты": crd }); return; }
-      const C = v["Координаты"]; if (C && !sameVals(C, crd)) { crd = JSON.parse(JSON.stringify(C)); coordSet(c, C); moved(); cur = orbitVals(orbitOf(L, c)); quiet({ "Положение камеры": cur }); return; }
-      if (camMoreSet(c, v["Камера: дополнительно"])) return moved();
-      if (Math.round(c.lens) !== v["Объектив, мм"]) { c.lens = v["Объектив, мм"]; if (c.id === cardCam) L.recam(); else L.need(); L.changed("lens"); }
-    },
-      a => { if (a.includes("Показать")) setCamera(L, c.id); else removeThing(L, c.id); });
+    const B = camBlock(c), cfg = { ...B.cfg };
+    if (c.id !== cardCam) cfg[K.showcard] = { type: "action" };
+    camActs(c, cfg);
+    cfg[K.del] = { type: "action" };
+    dial(c.name, cfg, v => { B.apply(v); }, a => { if (a === K.showcard) setCamera(L, c.id); else if (!camAct(c, a)) removeThing(L, c.id); });
+    greyCtl(B.greys); sizeRow(B.on);
   };
   const scenePane = () => {
-    const d = doc(), it = HY.board.items[L.id], cardCam = L.camId(), c = d.cameras.find(x => x.id === cardCam) || d.cameras[0];
-    const ratio = it.lock && FRAMES.includes(it.lock) ? it.lock : "Свободно";
-    let camCur, camCrd;   // what the camera's folders show, set below once the camera is known
+    const d = doc(), it = HY.board.items[L.id], cardCam = L.camId(), c = d.cameras.find(x => x.id === cardCam) || d.cameras[0], CB = camBlock(c);
     const w = d.world = d.world || {}, bg = Object.assign({ transparent: false, color: hexOf((w.color || [0.18, 0.18, 0.18]).map(x => x * (w.strength ?? 1))), opacity: 100 }, it.bg || {});
-    inf(`<div class="empty">Перетаскивание в кадре крутит камеру карточки, правая кнопка двигает, колесо приближает. Фон карточки отдельный слой, как у картинки: прозрачный пропускает холст под карточкой.</div>`);
-    camCur = orbitVals(orbitOf(L, c)); camCrd = coordVals(c);
-    // what «Широкий ↔ изометрия» shows: compared with the lens it rounds differently, and every later change of the panel (the
-    // background's transparency) took that for a move of the slider and drove the camera in again (owner 2026-10-04: «I change the
-    // transparency and the object jumps and turns»)
-    let dollyCur = dollyOf(c.lens);
-    dial("Сцена", {
-      "Камера": { type: "select", options: d.cameras.map(x => ({ value: x.id, label: x.name })), default: c.id },
-      "Объектив, мм": [Math.round(c.lens), DOLLY[0], DOLLY[1], 1], "Кадр": { type: "select", options: FRAMES, default: ratio },
-      "Широкий ↔ изометрия": [dollyOf(c.lens), 0, 100, 1],
-      "Положение камеры": orbitCfg(orbitOf(L, c)), "Координаты": coordCfg(c), "Камера: дополнительно": camMoreCfg(c),
-      "Фон": { "Прозрачный": bg.transparent, "Цвет": bg.color, "Прозрачность, %": [100 - bg.opacity, 0, 100, 1] },   // the owner reads it as see-through: 0 is a solid background (2026-10-04)
-      "Свет мира": { "Цвет": hexOf(w.color || [0.18, 0.18, 0.18]), "Сила": [w.strength ?? 1, 0, 5, 0.05], _collapsed: true },
-      "Подсветка выбора": { type: "select", options: [{ value: "A", label: "A · контур" }, { value: "B", label: "B · заливка" }, { value: "C", label: "C · оба" }], default: L.variant },
-      "Тянуть (T)": { "Ось": { type: "select", options: PIVOTS, default: HY.pref("m3.pull.pivot", PULL.pivot) }, "Вязкость": [+HY.pref("m3.pull.gel", PULL.gel), 1, 10, 0.5], _collapsed: true },
-      "Новая камера из этого вида": { type: "action" }, "Все камеры на холст": { type: "action" },
+    inf(`<p class="hy-hint m3hint">${t("<b>⌥ or Space + drag</b> turns the camera · <b>right drag</b> pans · <b>wheel</b> zooms")}</p>`);   // the app's footnote (ui/look.css .hy-hint): the controls, key words lit
+    // the camera block keeps what «Широкий ↔ изометрия» shows: compared with the lens it rounds differently, and every later change of the
+    // panel (the background's transparency) took that for a move of the slider and drove the camera in again (owner 2026-10-04)
+    dial(t("Scene"), {
+      ...CB.cfg,
+      [K.bg]: { [K.transparent]: bg.transparent, [K.color]: bg.color, [K.transparency]: [100 - bg.opacity, 0, 100, 1] },   // the owner reads it as see-through: 0 is a solid background (2026-10-04)
+      [K.world]: { [K.color]: hexOf(w.color || [0.18, 0.18, 0.18]), [K.strength]: [w.strength ?? 1, 0, 5, 0.05], _collapsed: true },
+      [K.highlight]: { type: "select", options: [{ value: "ghost", label: t("Ghost") }, { value: "outline", label: t("Outline") }], default: L.hl },
+      [K.pull]: { [K.pivot]: { type: "select", options: PIVOTS.map(p => ({ value: p.value, label: t(p.label) })), default: HY.pref("m3.pull.pivot", PULL.pivot) }, [K.gel]: [+HY.pref("m3.pull.gel", PULL.gel), 1, 10, 0.5], _collapsed: true },
+      ...camActs(c, {}),
+      [K.newcam]: { type: "action" }, [K.allcams]: { type: "action" },
     }, v => {
-      const K = v["Положение камеры"];
-      if (K && Object.keys(camCur).some(k => K[k] !== camCur[k])) { camCur = { ...K }; setOrbit(L, c, K); camCrd = coordVals(c); quiet({ "Координаты": camCrd }); return; }
-      const C = v["Координаты"]; if (C && !sameVals(C, camCrd)) { camCrd = JSON.parse(JSON.stringify(C)); coordSet(c, C); L.recam(); L.changed("camera"); camCur = orbitVals(orbitOf(L, c)); quiet({ "Положение камеры": camCur }); return; }
-      if (camMoreSet(c, v["Камера: дополнительно"])) { L.recam(); L.changed("camera"); return; }
-      if (v["Тянуть (T)"]) { HY.setPref("m3.pull.gel", String(v["Тянуть (T)"]["Вязкость"])); if (v["Тянуть (T)"]["Ось"]) HY.setPref("m3.pull.pivot", v["Тянуть (T)"]["Ось"]); }
-      if (v["Камера"] !== c.id) return setTimeout(() => setCamera(L, v["Камера"]));
-      if (v["Кадр"] !== ratio) return HY.frame(L.id, v["Кадр"] === "Свободно" ? "free" : v["Кадр"]);
-      if (v["Подсветка выбора"] !== L.variant) { L.variant = v["Подсветка выбора"]; HY.setPref("m3.variant", L.variant); }
-      if (v["Широкий ↔ изометрия"] !== dollyCur) {   // the dolly zoom: the lens and the distance together, the lens slider follows
-        dollyCur = v["Широкий ↔ изометрия"]; dolly(L, c, lensOf(dollyCur)); camCur = orbitVals(orbitOf(L, c)); camCrd = coordVals(c);
-        quiet({ "Объектив, мм": Math.round(c.lens), "Положение камеры": camCur, "Координаты": camCrd }); return;
-      }
-      if (Math.round(c.lens) !== v["Объектив, мм"]) {   // the lens alone zooms; the dolly slider shows where it now is
-        c.lens = v["Объектив, мм"]; L.recam(); L.changed("lens"); dollyCur = dollyOf(c.lens); quiet({ "Широкий ↔ изометрия": dollyCur });
-      }
-      const B = v["Фон"], nb = { transparent: B["Прозрачный"], color: B["Цвет"], opacity: 100 - B["Прозрачность, %"] };
-      if (JSON.stringify(nb) !== JSON.stringify(Object.assign({}, bg, it.bg || {}))) { const before = HY.snap(); HY.board.items[L.id].bg = nb; Object.assign(bg, nb); HY.commit(before, "3D: фон карточки"); }
-      const W = v["Свет мира"]; if (W && (hexOf(w.color || [0.18, 0.18, 0.18]) !== W["Цвет"] || (w.strength ?? 1) !== W["Сила"])) edit(() => { w.color = linOf(W["Цвет"]); w.strength = W["Сила"]; }); else L.need();
+      if (CB.apply(v)) return;
+      if (v[K.pull]) { HY.setPref("m3.pull.gel", String(v[K.pull][K.gel])); if (v[K.pull][K.pivot]) HY.setPref("m3.pull.pivot", v[K.pull][K.pivot]); }
+      if (v[K.highlight] && v[K.highlight] !== L.hl) { L.hl = v[K.highlight]; HY.setPref("m3.hl", L.hl); L.need(); }
+      const B = v[K.bg], nb = { transparent: B[K.transparent], color: B[K.color], opacity: 100 - B[K.transparency] };
+      if (JSON.stringify(nb) !== JSON.stringify(Object.assign({}, bg, it.bg || {}))) { const before = HY.snap(); HY.board.items[L.id].bg = nb; Object.assign(bg, nb); HY.commit(before, t("3D: card background")); remember(L, "bg"); }
+      const W = v[K.world]; if (W && (hexOf(w.color || [0.18, 0.18, 0.18]) !== W[K.color] || (w.strength ?? 1) !== W[K.strength])) edit(() => { w.color = linOf(W[K.color]); w.strength = W[K.strength]; }); else L.need();
     }, async a => {
-      if (a.includes("Новая")) addThing(L, "camera");
-      else { const ids = await placeCards(L.path, L.e, doc().cameras.map(x => x.id)); if (!ids.length) HY.toast("У каждой камеры уже есть карточка"); }
+      if (camAct(c, a)) return;
+      if (a === K.newcam) addThing(L, "camera");
+      else { const ids = await placeCards(L.path, L.e, doc().cameras.map(x => x.id)); if (!ids.length) HY.toast(t("Every camera already has a card")); }
     });
+    sizeRow(true);
   };
 
   // -- the toolbar
@@ -910,7 +1293,7 @@ function buildUI(L) {
     const list = await projectModels();
     menu.querySelectorAll("[data-models]").forEach(x => x.remove());
     const at = menu.querySelector('[data-add="area"]'), add = h => at.insertAdjacentHTML("beforebegin", h);
-    if (!list.length) add(`<button data-models disabled title="Модель: 3d/models/<имя>/model.json и ее .glb в папке доски">${ico("model")}Моделей в 3d/models нет</button>`);
+    if (!list.length) add(`<button data-models disabled title="${esc(t("Model: 3d/models/<name>/model.json and its .glb in the board's folder"))}">${ico("model")}${t("No models in 3d/models")}</button>`);
     for (const m of list) add(`<button data-models data-add="model:${esc(m.id)}" title="3d/models/${esc(m.id)}">${ico("model")}${esc(m.title || m.id)}</button>`);
   };
   const bar = q(".m3t");
@@ -928,7 +1311,9 @@ function buildUI(L) {
     if (t.dataset.tool) return setTool(L, t.dataset.tool);
     if (t.dataset.a === "shot") return shoot(L);
     if (t.dataset.a === "reset") return resetAll(L);
-    if (t.dataset.a === "done") return stopLive();
+    if (t.dataset.a === "undo" || t.dataset.a === "redo") return undo(L, t.dataset.a === "redo" ? 1 : -1);
+    if (t.dataset.a === "save") return stopLive(true);
+    if (t.dataset.a === "cancel") return askCancel(L);
   };
   root.addEventListener("click", onBar);
   root.querySelector('[data-tool="select"]').classList.add("on");
@@ -943,6 +1328,7 @@ function buildUI(L) {
   // axis flies it there in 0.4 s (owner 2026-10-03: the circle must turn and the jump be smooth); angles go on a sphere, so a top view
   // never flips
   const AX = [["X", 1, 0, 0, "#ff4d5e"], ["Y", 0, 0, -1, "#5fd35a"], ["Z", 0, 1, 0, "#4c8dff"]], svg = q(".axes");
+  // hy-allow-begin: icon-inline the axes gizmo: the scene's three axes as the camera sees them, redrawn each frame, not icons
   const axes = () => {
     const inv = L.cam.quaternion.clone().invert(), out = [];
     for (const [n, x, y, z, c] of AX) for (const sgn of [1, -1]) { const v = new THREE.Vector3(x * sgn, y * sgn, z * sgn).applyQuaternion(inv); out.push({ n, sgn, c, x: 45 + v.x * 30, y: 45 - v.y * 30, z: v.z }); }
@@ -950,6 +1336,7 @@ function buildUI(L) {
     svg.innerHTML = '<circle cx="45" cy="45" r="43" class="ring"/>' + out.map(p => (p.sgn > 0 ? `<line x1="45" y1="45" x2="${p.x}" y2="${p.y}" stroke="${p.c}" stroke-width="2" stroke-linecap="round"/>` : "")
       + `<g class="ax" data-ax="${p.n}${p.sgn > 0 ? "+" : "-"}"><circle cx="${p.x}" cy="${p.y}" r="${p.sgn > 0 ? 8.5 : 6}" fill="${p.c}" fill-opacity="${p.sgn > 0 ? 1 : 0.35}"/>${p.sgn > 0 ? `<text x="${p.x}" y="${p.y + 3.5}">${p.n}</text>` : ""}</g>`).join("");
   };
+  // hy-allow-end
   const sph = () => new THREE.Spherical().setFromVector3(L.cam.position.clone().sub(L.orbit.target));
   const placeCam = s => { s.phi = Math.min(Math.PI - 1e-3, Math.max(1e-3, s.phi)); L.cam.position.copy(L.orbit.target).add(new THREE.Vector3().setFromSpherical(s)); L.cam.lookAt(L.orbit.target); L.orbit.update(); };
   const VIEWS = { "X+": [Math.PI / 2, Math.PI / 2], "X-": [-Math.PI / 2, Math.PI / 2], "Y+": [Math.PI, Math.PI / 2], "Y-": [0, Math.PI / 2], "Z+": [null, 1e-3], "Z-": [null, Math.PI - 1e-3] };
@@ -968,42 +1355,132 @@ function buildUI(L) {
   });
   svg.addEventListener("pointerup", () => { if (gz && !gz.moved && gz.ax) { const [th, ph] = VIEWS[gz.ax]; flyTo(th === null ? sph().theta : th, ph); } else if (gz && gz.moved) remember(L, "camera"); gz = null; });
 
+  Object.assign(L, { dial, inf, ih });   // the studio's panes of other modules draw with these (variants.js, materials.js)
   tree(); panel();
-  return { root, bar, tree, panel, markTree, sync, axes };
+  const hist = historyTab(L, q, ico, esc);   // the History tab beside Properties (history.js)
+  return { root, bar, tree, panel, markTree, sync, axes, hist };
+}
+// a thing or a part of a model hidden or shown in the scene file (the view follows once applied)
+function seenFlag(L, n) {
+  const doc = L.e.doc, u = unitOf(n);
+  if (n === u) { const x = findAny(doc, u.userData.id); return !!(x && x.hidden); }
+  const o = doc.objects.find(x => x.id === u.userData.id), l = o && o.layers && o.layers[layerPath(u, n)]; return !!(l && l.hidden);
+}
+function setSeen(L, n, hidden) {
+  const doc = L.e.doc, u = unitOf(n);
+  if (n === u) { const x = findAny(doc, u.userData.id); if (x) { if (hidden) x.hidden = true; else delete x.hidden; } }
+  else { const o = doc.objects.find(x => x.id === u.userData.id), path = layerPath(u, n); o.layers = o.layers || {}; const cur = o.layers[path] = o.layers[path] || {}; if (hidden) cur.hidden = true; else delete cur.hidden; if (!Object.keys(cur).length) delete o.layers[path]; }
 }
 function toggleSeen(L, n) {
   if (!n) return;
-  const doc = L.e.doc, u = unitOf(n);
-  if (n === u) { const x = findAny(doc, u.userData.id); if (x) { x.hidden = !x.hidden || undefined; if (!x.hidden) delete x.hidden; } }
-  else { const o = doc.objects.find(x => x.id === u.userData.id), path = layerPath(u, n); o.layers = o.layers || {}; const cur = o.layers[path] = o.layers[path] || {}; cur.hidden = !cur.hidden || undefined; if (!cur.hidden) delete cur.hidden; if (!Object.keys(cur).length) delete o.layers[path]; }
-  L.view.apply(doc).then(() => { L.changed("seen", true); L.ui.tree(); L.need(); });
+  setSeen(L, n, !seenFlag(L, n));
+  L.view.apply(L.e.doc).then(() => { L.changed("seen", true); L.ui.tree(); L.need(); });
 }
 
-function newScene() {
-  const doc = newDoc(0.8), path = scenePath(), c = HY.viewCenter(), w = 400, h = 500, id = HY.uid("m"), before = HY.snap();
+function newScene(into) {   // into: a card placed already, a dropped 3D file (place.js): it keeps its place, size and name, not its pending file
+  const doc = newDoc(0.8), path = scenePath(), c = HY.viewCenter(), w = 400, h = 500, id = into || HY.uid("m"), before = HY.snap();
   entry(path, doc).then(e => { e.raw = ""; e.key = ""; save(path, true); });
-  HY.board.items[id] = { type: TYPE, scene: path, camera: doc.active_camera, x: Math.round(c.x - w / 2), y: Math.round(c.y - h / 2), w, h };
-  HY.commit(before, "3D-сцена: двойной клик, чтобы редактировать"); HY.select([id]);
+  // empty: the card asks for a file first (Open file…, the media library, the recent ones: canvas.js); the scene under it is ready, its
+  // light and camera stay when a file takes the stand-in's place. A double click opens the editor on the stand-in instead and clears it.
+  HY.board.items[id] = { x: Math.round(c.x - w / 2), y: Math.round(c.y - h / 2), w, h, ...(into && HY.board.items[into]), type: TYPE, scene: path, camera: doc.active_camera, empty: true };
+  HY.commit(before, t("3D scene: double-click to edit")); HY.select([id]);
+  return id;
+}
+
+// ---- a 3D file into a card (owner 2026-10-06: «Open file…», the media library's 3D filter, the recent ones). The scene holds glb files;
+// a file of another format becomes a glb once (loaders.js). A file the person chose is written into the project first, 3d/files/<hash>/
+// <name>.glb, so the scene never points outside the library; one from the library stays where it is (a converted copy goes to
+// 3d/converted/<hash>/). The stand-in shape of an empty card is replaced; the scene's light and camera stay, the file stands on the floor.
+// A STEP or IGES file is converted by FreeCAD on the server once (cad.py): its glb is what lands in the project, as the file's copy.
+const safeName = n => (String(n).replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^[._]+/, "") || "model").slice(0, 80);
+const fnv = text => { let h = 0x811c9dc5; for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16).padStart(8, "0"); };
+const exists = async p => { try { return (await fetch(fileUrl(p), { method: "HEAD" })).ok; } catch (e) { return false; } };
+async function upload(path, data) {
+  const r = await fetch(`/api/file?p=${encodeURIComponent(path)}`, { method: "POST", body: data });
+  if (!r.ok) throw new Error(await r.text());
+  return path;
+}
+async function chosenToLibrary(files) {
+  const c = readChosen(files); if (!c) throw new Error(t("This is not a 3D file (glb, gltf, obj, stl, fbx, step, iges)"));
+  try {
+    if (c.file.size > LIMITS.mb * 1048576) throw new Error(t("The file is over {n} MB", { n: LIMITS.mb }));
+    const buf = await c.file.arrayBuffer(), path = `3d/files/${await digest(buf)}/${safeName(stemOf(c.name))}.glb`;
+    if (!(await exists(path))) await upload(path, extOf(c.name) === "glb" ? buf : isCad(c.name) ? await cadGlb({ name: c.name, file: c.file }) : await toGlb(await loadObject(c)));
+    return { path, name: stemOf(c.name) };   // the object carries the chosen file's name, not the safe one of its copy
+  } finally { c.done(); }
+}
+async function glbOf(path, ver) {   // a library file as a glb: a glb itself, else the copy made of it for this version
+  if (extOf(path) === "glb") return path;
+  const dest = `3d/converted/${fnv(`${path}@${ver || 0}`)}/${safeName(stemOf(path))}.glb`;
+  if (await exists(dest)) return dest;
+  if (isCad(path)) return upload(dest, await cadGlb({ name: path, path, ver }));   // FreeCAD's glb as it is: no second export
+  const dir = path.replace(/[^/]+$/, "");
+  return upload(dest, await toGlb(await loadObject({ name: path, url: fileUrl(path), resolve: n => fileUrl(dir + n) })));
+}
+async function recentAdd(path) {
+  try { await fetch(`/api/plugin/${encodeURIComponent(PLUGIN)}/recent`, { method: "POST", body: JSON.stringify({ add: path }) }); } catch (e) { /* the list is a convenience */ }
+}
+// what to put: {path} of a library file, {model} a project model's model.json, or {files} chosen in the system's panel; ver: its version
+// why FreeCAD gave nothing, in words (the reason is cad.py's)
+const cadWhy = err => t({ nofreecad: "FreeCAD is needed to read STEP files: none found on this Mac", empty: "The CAD file is empty", toobig: "The CAD file is too big to convert",
+  timeout: "FreeCAD took too long on this file", nogeometry: "The CAD file has no solids or surfaces", gone: "The conversion did not finish, try again", network: "The conversion did not finish, try again" }[err.cad] || "FreeCAD could not read this file");
+export async function putFile(id, what) {
+  let it = HY.board.items[id]; if (!it || !it.scene) return false;
+  const ov = document.querySelector(`.plg[data-id="${id}"] .e3`); if (ov) ov.classList.add("busy");   // the empty card waits (empty.js says why while FreeCAD works)
+  try {
+    const chosen = what.files ? await chosenToLibrary(what.files) : null, path = chosen ? chosen.path : what.path, ver = what.ver, isModel = /(^|\/)model\.json$/.test(path || "");
+    const e = await entryOf(id, it), doc = e.doc, before = HY.snap(); it = HY.board.items[id];
+    const stand = it.empty && doc.objects[0] && doc.objects[0].src && doc.objects[0].src.type === "prim" ? doc.objects[0] : null;
+    let name, src, loc, scale = [1, 1, 1], ai = stand ? stand.ai : "";
+    if (isModel) {   // a project model: as «+» puts it, at its own height
+      const spec = await (await fetch(fileUrl(path))).json(), mid = path.split("/").slice(-2, -1)[0];
+      name = spec.title || mid; src = { type: "model", model: mid }; loc = [0, 0, modelHeight(spec) / 2 + 0.0005]; ai = spec.ai || ai;
+      ensureAssembled(mid).catch(() => {});
+    } else {
+      const glb = await glbOf(path, ver), root = await loadGLB(fileUrl(glb)); root.updateWorldMatrix(true, true);
+      const box = new THREE.Box3().setFromObject(root), size = box.getSize(new THREE.Vector3()), big = Math.max(size.x, size.y, size.z);
+      if (!(big > 0)) throw new Error(t("The file has no geometry"));
+      const k = big >= 0.05 && big <= 0.3 ? 1 : 0.2 / big, c = box.getCenter(new THREE.Vector3());   // real size when it is a few cm to 30 cm, else 20 cm
+      name = chosen ? chosen.name : stemOf(path); src = { type: "file", path: glb }; scale = [k, k, k];
+      loc = fromV(new THREE.Vector3(-k * c.x, -k * box.min.y + 0.0005, -k * c.z));   // its middle on the floor's centre, its foot on the floor
+    }
+    const o = { id: newId(), name, src, loc, rot: [1, 0, 0, 0], scale, ai };
+    if (stand) doc.objects[doc.objects.indexOf(stand)] = o; else doc.objects.push(o);
+    tidy(doc); await e.view.apply(doc); save(it.scene, true);
+    delete it.empty; it.name = name; HY.commit(before, t("3D: file {name}", { name })); HY.render();   // the name: hy.py find finds the card by its file
+    repaint(it.scene, true);
+    recentAdd(path);   // a file of the library by its own path (a converted copy is not the file), a chosen one by the copy in 3d/files
+    return true;
+  } catch (err) { HY.toast(err.heavy ? t("3D: {why}. First “Load” on the card", { why: heavyText(err.heavy) }) : err.cad ? "3D: " + cadWhy(err) : "3D: " + (err.message || err)); return false; }
+  finally { if (ov) ov.classList.remove("busy"); }
 }
 
 let H;   // canvas.js: poster(el, it, id, doc, force) shows a card through the cache
 export function init(hy, hooks) {
   HY = hy; H = hooks;
+  t = translator(hy); initHistory({ HY, t, live: () => live }); initTools({ THREE, HY, t }); initView({ HY, t, live: () => live, stop: keep => stopLive(keep) }); sceneWords(t); K = Object.fromEntries(Object.entries(LABELS).map(([k, w]) => [k, t(w)]));
+  FIN_NAME = Object.fromEntries(Object.entries(FIN_WORDS).map(([k, w]) => [k, t(w)])); FIN_KEY = Object.fromEntries(Object.entries(FIN_NAME).map(([k, v]) => [v, k]));
   const dkCss = document.createElement("link"); dkCss.rel = "stylesheet"; dkCss.href = new URL("./vendor/dialkit/styles.css", import.meta.url).href; document.head.appendChild(dkCss);
 }
 export { goLive, newScene };
 export function onKey(e) {
   if (!live) return false;
-  if (document.activeElement && document.activeElement.closest(".dialkit-root")) return true;   // a DialKit control has the keys
   const L = live, k = e.key.toLowerCase(), mod = e.metaKey || e.ctrlKey;
-  if (mod && (k === "z" || k === "я")) { e.preventDefault(); undo(L, e.shiftKey ? 1 : -1); return true; }
+  // ⌘Z ⇧⌘Z are the studio's steps wherever the focus is after a gesture (a slider, a row of the list); a field being typed in keeps its own
+  // (the board does not hand those keys over then). A DialKit control kept ⌘Z before (owner 2026-10-07: «cmd + z не работает в 3D studio»)
+  if (mod && !e.altKey && (k === "z" || k === "я")) { e.preventDefault(); undo(L, e.shiftKey ? 1 : -1); return true; }
+  if (document.activeElement && document.activeElement.closest(".dialkit-root")) return true;   // a DialKit control has the keys
   if (e.key === "Escape") {   // Esc climbs from a layer to its object, then drops the pick, then closes the editor
+    if (L.blender && L.blender.escape()) { e.preventDefault(); return true; }   // a Blender render running: Esc stops it first
     e.preventDefault(); const p = picked(L);
     if (p.kind === "layer") { let n = p.node.parent; while (n && n !== p.unit && head(p.unit, n) !== n) n = n.parent; pick(L, n && n !== p.unit.children[0] ? n : p.unit); }
-    else if (p.kind) pick(L, null); else stopLive();
+    else if (p.kind || L.lmSel) pick(L, null); else askCancel(L);
     return true;
   }
-  if (e.key === "Enter") { e.preventDefault(); stopLive(); return true; }
+  // ⌘↵ saves, as in the image studio; a plain Enter never does (owner 2026-10-07: «просто Enter можно случайно нажать или применить, например,
+  // при изменении чисел в параметрах»): in a number field it only takes the value
+  if (e.key === "Enter") { if (mod && !e.altKey && !e.shiftKey) { e.preventDefault(); stopLive(true); } return true; }
+  if (e.key === " ") { e.preventDefault(); return true; }   // Space + drag turns the camera (tools.js), not the board's hand
   if ((e.key === "Backspace" || e.key === "Delete")) { const p = picked(L); if (p.kind && p.kind !== "layer") { e.preventDefault(); removeThing(L, p.id); } return true; }
   if (!mod && (k === "p" || k === "з")) { e.preventDefault(); shoot(L); return true; }
   const tool = { v: "select", м: "select", g: "translate", п: "translate", r: "rotate", к: "rotate", s: "scale", ы: "scale", t: "smart", е: "smart" }[k];

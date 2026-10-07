@@ -1,7 +1,9 @@
 {
- "title": "3D-объекты",
+ "title": "3D objects",
+ "title_ru": "3D-объекты",
  "version": "0.1.0",
  "canvas": "canvas.js",
- "about": "3D-сцена как карточка на холсте Hyimg: крутить, объектив, свет, модели проекта из 3d/models, снимок в картинку с json камеры",
- "server": "models.py"
+ "about": "A 3D scene as a card on the Hyimg canvas: turn it, lens, light, the project's models from 3d/models, a snapshot into an image with the camera's json; a 3D file from a chooser or the media library, with turntable previews",
+ "server": "models.py",
+ "sprites": "sprites.js"
 }

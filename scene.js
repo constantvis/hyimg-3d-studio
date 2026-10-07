@@ -9,9 +9,13 @@
 //             | {type: "node"} (a node of scene.glb), loc, rot, scale, color, finish: matte|glossy|metal, colors: {<role>: hex}, mask, ai,
 //             hidden, shadow_only (only its shadow shows, Blender's shadow catcher),
 //             layers: {"<path in the object's tree>": {color, finish, hidden}} (one part of a model: the case, a glass of the phone)}],
-//  lights: [{id, name, type: point|spot|sun|area, loc, rot, color: [r, g, b] linear, power (W, W/m² for sun), size, size_y, shape, spot_size, spot_blend, angle}],
+//  lights: [{id, name, type: point|spot|sun|area, loc, rot, color: [r, g, b] linear, power (W, W/m² for sun), size, size_y, shape, spot_size, spot_blend, angle,
+//            temp (K: the colour × a black body, Blender's light.temperature)}],
+//  variants: [{id, name, light: studio|angle|own, env, materials: {<material>: {<param>: value | {mul} | {tint}}}}]   (a studio's scene: variants.js)
 //  cameras: [{id, name, loc, rot, lens, sensor, sensor_h, fit: AUTO|HORIZONTAL|VERTICAL, shift: [x, y], clip: [start, end]}],
-//  removed: [<id>]}   (ids deleted on one side, so the other deletes them too instead of bringing them back)
+//  removed: [<id>],   (ids deleted on one side, so the other deletes them too instead of bringing them back)
+//  ui: {colors: {"<id>" | "<object id>/<layer path>": yellow|orange|red|pink|purple|blue|green|grey}}}   (the editor's list only, owner 2026-10-06:
+//  a node's navigation colour, inherited by what is under it; not the scene, Blender keeps it untouched, undo and reset leave it alone)
 import * as THREE from "./vendor/three/build/three.module.js";
 import { GLTFLoader } from "./vendor/three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "./vendor/three/examples/jsm/loaders/DRACOLoader.js";
@@ -19,8 +23,13 @@ import { HDRLoader } from "./vendor/three/examples/jsm/loaders/HDRLoader.js";
 import { EXRLoader } from "./vendor/three/examples/jsm/loaders/EXRLoader.js";
 import { GLTFExporter } from "./vendor/three/examples/jsm/exporters/GLTFExporter.js";
 import { RectAreaLightUniformsLib } from "./vendor/three/examples/jsm/lights/RectAreaLightUniformsLib.js";
+import { kelvin } from "./lights.js";   // a light's colour temperature (temp, K), as Blender's light.temperature
 
 export const FORMAT = "hyimg-scene/1";
+// the interface's words (owner 2026-10-06: «make 2 versions, Russian and English»): engine.js hands over the plugin's t (lang.js) at init;
+// until then, and in tests outside the board, English
+let t = (k, v) => v ? k.replace(/\{(\w+)\}/g, (m, x) => (x in v ? String(v[x]) : m)) : k;
+export const setT = fn => { t = fn; };
 const BASE = new URL(".", import.meta.url).href;
 export const LIB = "3d/models";
 export const MASKS = ["#2f6fe4", "#e4572e", "#3cb44b", "#f032e6", "#ffe119", "#42d4f4", "#911eb4", "#f58231", "#bfef45", "#469990", "#dcbeff", "#9a6324"];
@@ -108,7 +117,7 @@ export function assembleModel(id) {
     }
     const sz = boxOf(phone).getSize(new THREE.Vector3()), k = spec.height / Math.max(sz.y, 1e-3);
     normalize(phone, k);
-    const caseRoot = new THREE.Group(); caseRoot.name = "case"; caseRoot.userData.label = "Чехол"; cases.forEach(g => caseRoot.add(g)); root.add(caseRoot); normalize(caseRoot, k);
+    const caseRoot = new THREE.Group(); caseRoot.name = "case"; caseRoot.userData.label = "Чехол"; caseRoot.userData.shown = t("Case"); cases.forEach(g => caseRoot.add(g)); root.add(caseRoot); normalize(caseRoot, k);
     const pb = boxOf(phone), cb = boxOf(caseRoot), pc = pb.getCenter(new THREE.Vector3()), cc = cb.getCenter(new THREE.Vector3());
     caseRoot.position.x += pc.x - cc.x; caseRoot.position.y += pc.y - cc.y; caseRoot.position.z += pb.max.z - cb.max.z + (spec.clearance || 0);
     return { root, spec, files: spec.parts.map(p => `${LIB}/${id}/${p.file}`) };
@@ -156,7 +165,8 @@ function primGeometry(shape, s) {
 }
 
 // a layer of an object is named by the path of names from the object down, as the tree shows it; the mirrored half of a part
-// carries «~зеркало», so the two halves can be told apart
+// carries «~зеркало», so the two halves can be told apart. These names are keys in scene files (an object's layers, Blender's side reads
+// «~зеркало»): they stay Russian in both languages, the editor shows them translated (engine.js shownPath)
 export const nodeLabel = n => (n.userData.label || n.name || "узел") + (n.userData.mirror ? "~зеркало" : "");
 export function layerPath(unit, node) {
   const seg = []; let n = node;
@@ -178,10 +188,10 @@ export class Heavy extends Error {
 }
 export function heavyText(h) {
   const parts = [];
-  if (h.mb) parts.push(`${Math.round(h.mb)} МБ файлов`);
-  if (h.tris) parts.push(`${(h.tris / 1e6).toFixed(1)} млн треугольников`);
-  if (h.texMb) parts.push(`${Math.round(h.texMb)} МБ текстур`);
-  return "тяжелая сцена: " + parts.join(", ");
+  if (h.mb) parts.push(t("{n} MB of files", { n: String(Math.round(h.mb)) }));
+  if (h.tris) parts.push(t("{n} million triangles", { n: (h.tris / 1e6).toFixed(1) }));
+  if (h.texMb) parts.push(t("{n} MB of textures", { n: String(Math.round(h.texMb)) }));
+  return t("heavy scene: {what}", { what: parts.join(", ") });
 }
 const sizeOf = async url => { try { const r = await fetch(url, { method: "HEAD" }); return +(r.headers.get("Content-Length") || 0); } catch (e) { return 0; } };
 export function weight(root) {
@@ -289,15 +299,15 @@ export class SceneView {
     if (s.type === "model") return modelInstance(s.model);
     if (s.type === "file") return (await glbOnce(fileUrl(s.path))).clone(true);
     if (s.type === "node") {   // a node of scene.glb: Blender's geometry, found by the id Blender stored on it (glTF extras)
-      if (!glbUrl) throw new Error("в сцене нет scene.glb");
+      if (!glbUrl) throw new Error(t("the scene has no scene.glb"));
       const root = await glbOnce(glbUrl); let hit = null;
       root.traverse(n => { if (!hit && n.userData && n.userData.hyimg_id === o.id) hit = n; });
       if (!hit) root.traverse(n => { if (!hit && n.name === o.name) hit = n; });
-      if (!hit) throw new Error("нет в scene.glb");
+      if (!hit) throw new Error(t("not in scene.glb"));
       const c = hit.clone(true); c.position.set(0, 0, 0); c.quaternion.identity(); c.scale.set(1, 1, 1);
       return c;
     }
-    throw new Error("неизвестный источник " + s.type);
+    throw new Error(t("unknown source {type}", { type: s.type }));
   }
 
   applyLight(l) {
@@ -317,6 +327,7 @@ export class SceneView {
       g.add(parts.main); this.scene.add(g); u = { obj: g, kind: "light", type: l.type, parts }; this.units.set(l.id, u);
     }
     const g = u.obj, p = u.parts, col = lin(l.color || [1, 1, 1]), P = l.power != null ? l.power : 10;
+    if (l.temp) { const k = kelvin(l.temp); col.multiply(new THREE.Color(k[0], k[1], k[2])); }   // Blender: the colour × the black body
     g.name = l.name; g.visible = !l.hidden;
     g.position.copy(toV(l.loc || [0, 0, 1])); g.quaternion.copy(viewQ(l.rot || [1, 0, 0, 0]));
     // watts as the glTF exporter reads them, without its 683 lm/W (three.js and Blender both render in their own units, so the same
@@ -376,9 +387,11 @@ export class SceneView {
     Object.assign(this.scene, { environment: this.pmrem.fromScene(env, 0).texture, background: col.clone(), environmentIntensity: 1, backgroundIntensity: 1 });
   }
 
-  // the three.js camera of a scene camera on a frame w×h
-  camera(id, w, h) {
-    const c = (this.doc.cameras || []).find(x => x.id === id) || (this.doc.cameras || [])[0];
+  // the three.js camera of a scene camera on a frame w×h; over: the card's own view of it (item.view, the board is the truth, 2026-10-07),
+  // which wins over the scene's camera of that id and stands in for one missing from the scene
+  camera(id, w, h, over) {
+    let c = (this.doc.cameras || []).find(x => x.id === id) || (over ? null : (this.doc.cameras || [])[0]);
+    if (over) c = Object.assign({}, c || {}, over, { id });
     let cam = this.cams.get(c ? c.id : "_"); if (!cam) { cam = new THREE.PerspectiveCamera(); this.cams.set(c ? c.id : "_", cam); }
     if (!c) { cam.position.set(0.3, 0.2, 0.6); cam.lookAt(0, 0.08, 0); return cam; }
     const a = w / h; cam.aspect = a; cam.fov = camFov(c, a);
@@ -455,21 +468,21 @@ export function newDoc(aspect = 0.8, model = null) {
   const rx = aspect >= 1 ? 1600 : Math.round(1600 * aspect), ry = aspect >= 1 ? Math.round(1600 / aspect) : 1600;
   const D = 0.12, H = model ? modelHeight(model) : D;
   const subject = model
-    ? { id: newId(), name: model.title || "Модель", src: { type: "model", model: model.id }, loc: [0, 0, H / 2 + 0.0005], rot: [1, 0, 0, 0], scale: [1, 1, 1], ai: model.ai || "" }
-    : { id: newId(), name: "Предмет", src: { type: "prim", shape: "sphere", size: [D, D, D] }, loc: [0, 0, D / 2], rot: [1, 0, 0, 0], scale: [1, 1, 1], color: "#b8b8b4", ai: "главный предмет кадра" };
+    ? { id: newId(), name: model.title || t("Model"), src: { type: "model", model: model.id }, loc: [0, 0, H / 2 + 0.0005], rot: [1, 0, 0, 0], scale: [1, 1, 1], ai: model.ai || "" }
+    : { id: newId(), name: t("Object"), src: { type: "prim", shape: "sphere", size: [D, D, D] }, loc: [0, 0, D / 2], rot: [1, 0, 0, 0], scale: [1, 1, 1], color: "#b8b8b4", ai: t("the main object of the shot") };
   const key = [-0.45, -0.55, 0.55], fill = [0.7, -0.2, 0.25];
   return tidy({
     format: FORMAT, rev: 0, by: "", render: { x: rx, y: ry },
     world: { color: [0.18, 0.18, 0.18], strength: 1, exposure: 0, look: "AgX" },
     objects: [
       subject,
-      { id: newId(), name: "Пол", src: { type: "prim", shape: "plane", size: [3, 3, 0] }, loc: [0, 0, 0], rot: [1, 0, 0, 0], scale: [1, 1, 1], color: "#c9c8c3", ai: "пол студии" },
+      { id: newId(), name: t("Floor"), src: { type: "prim", shape: "plane", size: [3, 3, 0] }, loc: [0, 0, 0], rot: [1, 0, 0, 0], scale: [1, 1, 1], color: "#c9c8c3", ai: t("studio floor") },
     ],
     lights: [
-      { id: newId(), name: "Ключевой", type: "area", loc: key, rot: look(key, [0, 0, 0.08]), color: [1, 1, 1], power: 25, size: 0.6, size_y: 0.6, shape: "SQUARE" },
-      { id: newId(), name: "Заполняющий", type: "area", loc: fill, rot: look(fill, [0, 0, 0.08]), color: [1, 1, 1], power: 8, size: 1, size_y: 1, shape: "SQUARE" },
+      { id: newId(), name: t("Key"), type: "area", loc: key, rot: look(key, [0, 0, 0.08]), color: [1, 1, 1], power: 25, size: 0.6, size_y: 0.6, shape: "SQUARE" },
+      { id: newId(), name: t("Fill"), type: "area", loc: fill, rot: look(fill, [0, 0, 0.08]), color: [1, 1, 1], power: 8, size: 1, size_y: 1, shape: "SQUARE" },
     ],
-    cameras: [{ id: newId(), name: "Камера 1", loc: [0.32, -0.62, 0.2], rot: look([0.32, -0.62, 0.2], [0, 0, +(H / 2 + 0.003).toFixed(3)]), lens: 70, sensor: 36, sensor_h: 24, fit: "AUTO", shift: [0, 0], clip: [0.01, 100] }],
+    cameras: [{ id: newId(), name: `${t("Camera")} 1`, loc: [0.32, -0.62, 0.2], rot: look([0.32, -0.62, 0.2], [0, 0, +(H / 2 + 0.003).toFixed(3)]), lens: 70, sensor: 36, sensor_h: 24, fit: "AUTO", shift: [0, 0], clip: [0.01, 100] }],
     removed: [],
   }, "active");
 }

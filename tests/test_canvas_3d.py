@@ -9,11 +9,14 @@ import math, os, socket, struct, subprocess, sys, time, urllib.request, uuid
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Page, sync_playwright
 
 HERE = Path(__file__).resolve().parent.parent
 REPO = Path(os.environ.get("HYIMG_REPO", HERE.parent / "hyimg"))   # the repositories sit side by side in one folder (2026-10-04)
 SHOTS = os.environ.get("HYIMG_SHOTS")   # a folder for screenshots to look at
+# a new card asks for a file in its middle (2026-10-06): a double click that opens the editor lands near its corner, clear of the selected
+# card's 30 px corner square (it reaches 15 px into the card, shown from 62 px wide since the owner's lab, 2026-10-06)
+CORNER = {"x": 22, "y": 22}
 MODEL, TITLE, AI = "test-model", "Тестовая модель", "тестовая модель, форму не менять"
 
 
@@ -78,10 +81,13 @@ def free_port():
 
 
 @pytest.fixture
-def hy(tmp_path):
+def hy(tmp_path, request):
     lib, state, plugins = tmp_path / "lib", tmp_path / "state", tmp_path / "plugins"
     tiny_model(lib)
     (state / "boards").mkdir(parents=True); plugins.mkdir()
+    # the interface's language (owner 2026-10-06: «make 2 versions, Russian and English»): the app's setting cv.lang in its settings file;
+    # these tests read the Russian words, an English test asks for "en" (indirect parametrize), which is the app's default
+    (state / "app-settings.json").write_text(json.dumps({"cv.lang": "ru"} if getattr(request, "param", "ru") == "ru" else {}))
     (state / "boards/main.json").write_text(json.dumps({"items": {}, "groups": {}, "revision": 1}))
     (plugins / "3d").symlink_to(HERE)
     port = free_port()
@@ -104,10 +110,35 @@ def go_on(page):
     if page.locator(".m3pause [data-go]").count(): page.click(".m3pause [data-go]")
 
 
+# The studio writes scene.json on «Save» only (owner 2026-10-07): while a page has it open, a scene's state is the studio's own, in
+# memory. wait_file reads that one for the scene the open studio edits (every page these tests open is tracked), else the file
+PAGES = []
+_goto = Page.goto
+def _tracked(self, *a, **k): PAGES.append(self); return _goto(self, *a, **k)   # noqa: E302
+Page.goto = _tracked
+LIVE = "p => document.querySelector('.plg-live') ? import('/plugins/3d/engine.js').then(m => m.livePath() === p ? m.docOf(p) : null).catch(() => null) : null"
+
+
+def live_doc(path):
+    rel = str(path).split("/lib/", 1)[-1]
+    for pg in reversed(PAGES):
+        try:
+            if pg.is_closed(): continue
+            for fr in pg.frames:
+                d = fr.evaluate(LIVE, rel)
+                if d: return d
+        except Exception: pass
+    return None
+
+
+def scene_now(p):   # the open studio's scene, else the file
+    return live_doc(p) or json.loads(p.read_text())
+
+
 def wait_file(p, cond=lambda d: True, t=8):
     for _ in range(int(t * 10)):
         try:
-            d = json.loads(p.read_text())
+            d = live_doc(p) or json.loads(p.read_text())
             if cond(d): return d
         except (OSError, ValueError): pass
         time.sleep(0.1)
@@ -136,7 +167,7 @@ def test_scene_card_editor_snapshot_and_agent_changes(hy):
         model_in_the_middle(page, scene)
         shot(page, "1-card")
 
-        page.dblclick(".plg[data-type=model3d]")
+        page.dblclick(".plg[data-type=model3d]", position=CORNER)
         page.wait_for_selector(".m3ui .m3l .row")
         assert page.locator(".m3ui .m3l .row").count() == 5   # the model, floor, two lights, camera
         for _ in range(150):   # opening a scene writes its model as one file for Blender
@@ -157,13 +188,13 @@ def test_scene_card_editor_snapshot_and_agent_changes(hy):
         assert page.locator(".m3r .real").inner_text().startswith(TITLE + " ›")
         page.keyboard.press("Escape"); page.keyboard.press("Escape"); page.keyboard.press("Escape")
         page.wait_for_timeout(200)
-        if page.locator(".m3ui").count() == 0: page.dblclick(".plg[data-type=model3d]"); page.wait_for_selector(".m3ui .m3l .row")
+        if page.locator(".m3ui").count() == 0: page.dblclick(".plg[data-type=model3d]", position=CORNER); page.wait_for_selector(".m3ui .m3l .row")
         page.click(".m3t [data-plus]"); page.click(".m3menu [data-add=box]")
         doc = wait_file(scene, lambda d: any(o["src"].get("shape") == "box" for o in d["objects"]))
         box = next(o for o in doc["objects"] if o["src"].get("shape") == "box")
         # the box's height in the DialKit panel: focus its slider and step it with the keyboard
-        z = page.locator(".m3r [role=slider]").filter(has_text="Z").last
-        z.focus(); [page.keyboard.press("ArrowRight") for _ in range(5)]
+        z = page.locator(".m3r .hy-slider").filter(has_text="Z").last
+        z.locator("input").focus(); [page.keyboard.press("ArrowRight") for _ in range(5)]
         doc = wait_file(scene, lambda d: next(o for o in d["objects"] if o["id"] == box["id"])["src"]["size"][2] > 0.1)
         box = next(o for o in doc["objects"] if o["id"] == box["id"])
         assert box["name"].startswith("Куб") and not box.get("ai"), "the panel of the box does not carry the phone's name or text"
@@ -207,8 +238,8 @@ def test_scene_card_editor_snapshot_and_agent_changes(hy):
         go_on(page)   # software GL here is slow: the guard may have paused the editor with its question
         loc0 = doc["cameras"][0]["loc"]
         r = page.locator("canvas.m3live").bounding_box()
-        page.mouse.move(r["x"] + r["width"] * 0.3, r["y"] + r["height"] * 0.85); page.mouse.down()
-        page.mouse.move(r["x"] + r["width"] * 0.6, r["y"] + r["height"] * 0.8, steps=8); page.mouse.up()
+        page.keyboard.down("Alt"); page.mouse.move(r["x"] + r["width"] * 0.3, r["y"] + r["height"] * 0.85); page.mouse.down()   # ⌥: the camera (tools.js)
+        page.mouse.move(r["x"] + r["width"] * 0.6, r["y"] + r["height"] * 0.8, steps=8); page.mouse.up(); page.keyboard.up("Alt")
         doc = wait_file(scene, lambda d: d["cameras"][0]["loc"] != loc0)
         # «+» lists the project's models (3d/models, the plugin's route models.py); a picked one takes its name and AI text from model.json
         go_on(page); page.click(".m3t [data-plus]")
@@ -233,18 +264,20 @@ def test_scene_card_editor_snapshot_and_agent_changes(hy):
         assert {m["pass"] for m in metas} == {"вид", "маски", "глубина"}
         assert all(m["scene"] == it["scene"] for m in metas) and any(AI in m["prompt"] for m in metas)
         before_edit = page.evaluate("() => document.querySelector('.plg[data-type=model3d] img.m3').src")
-        page.keyboard.press("Escape"); page.keyboard.press("Escape")
+        page.keyboard.press("Escape"); page.keyboard.press("Meta+Enter")   # the pick dropped, then «Save» ⌘↵ (Esc with changes asks first)
         page.wait_for_function("() => !document.querySelector('.m3ui')")
         # «Готово» shows the edited scene on the card (2026-10-03: it kept the old view)
         page.wait_for_function(f"() => document.querySelector('.plg[data-type=model3d] img.m3').src !== {json.dumps(before_edit)}", timeout=30000)
         shot(page, "3-after-snapshot")
 
-        # an agent rewrites the file (as hyimg_scene.py export does): the card follows
-        src0 = page.evaluate("() => document.querySelector('.plg[data-type=model3d] img.m3').src")
-        d = json.loads(scene.read_text()); d["cameras"][0]["lens"] = 24; d["rev"] += 1; d["by"] = "blender"
+        # an agent rewrites the file (as hyimg_scene.py export does): the card follows what the cards share (here the world's colour); the
+        # scene's camera of the card's id is only a copy now, the card keeps its own view (item.view, owner 2026-10-07)
+        src0, v0 = page.evaluate("() => [document.querySelector('.plg[data-type=model3d] img.m3').src, Object.values(board.items).find(i => i.view).view]")
+        d = json.loads(scene.read_text()); d["cameras"][0]["lens"] = 24; d["world"]["color"] = [0.7, 0.2, 0.2]; d["rev"] += 1; d["by"] = "blender"
         cam2 = dict(d["cameras"][0], id="cam2", name="Камера 2", lens=120); d["cameras"].append(cam2)
         scene.write_text(json.dumps(d, ensure_ascii=False))
         page.wait_for_function(f"() => document.querySelector('.plg[data-type=model3d] img.m3').src !== {json.dumps(src0)}", timeout=30000)   # a slow card (software GL here) waits up to 20 s
+        assert page.evaluate("() => Object.values(board.items).find(i => i.view).view.lens") == v0["lens"] != 24, "the card keeps its own view"
         (lib / "3d/scenes/inbox.json").write_text(json.dumps({"id": "req1", "scene": it["scene"], "cameras": [d["cameras"][0]["id"], "cam2"]}))
         page.wait_for_function("() => Object.values(board.items).filter(i => i.type === 'model3d').length === 2", timeout=15000)
         assert page.evaluate("() => Object.values(board.items).filter(i => i.type === 'model3d').map(i => i.camera)").count("cam2") == 1
@@ -304,11 +337,11 @@ def test_library_folds_while_the_editor_is_open(hy):
         frame.wait_for_function("() => typeof PLGST !== 'undefined' && PLGST.some(p => p.name === '3d' && p.ok)", timeout=20000)
         cv.locator("button[title^='3D-сцена']").click()
         frame.wait_for_function("() => { const i = document.querySelector('.plg[data-type=model3d] img.m3'); return i && i.src.startsWith('data:image') }", timeout=30000)
-        cv.locator(".plg[data-type=model3d]").dblclick()
+        cv.locator(".plg[data-type=model3d]").dblclick(position=CORNER)
         page.wait_for_function("() => document.body.classList.contains('cv-only')", timeout=15000)
         assert page.evaluate("() => localStorage.getItem('view')") == "panel", "the remembered view stays"
         go_on(cv)
-        cv.locator(".m3t [data-a=done]").click()
+        cv.locator(".m3t [data-a=save]").click()
         page.wait_for_function("() => !document.body.classList.contains('cv-only') && document.body.classList.contains('cv-on')", timeout=15000)
         assert not errors, errors
         browser.close()
@@ -316,8 +349,9 @@ def test_library_folds_while_the_editor_is_open(hy):
 
 def test_card_frame_changes_like_a_picture_crop(hy):
     """Owner 2026-10-03: «why can't I change the size like a picture, 1:1, free and so on». In the editor the card's frame works like a
-    crop: the ratio bar over it (Свободно, 1:1, 4:5 …, ⇄), edges and corners that move freely; the list «Кадр» on the right is the same
-    choice. The card keeps its frame, the scene's render size follows it, and the still is drawn again in the new frame."""
+    crop: the list «Кадр» in the Scene panel (Свободно, 1:1, 4:5 …) and its ⇄, edges and corners that move freely. Since 2026-10-07 the
+    choice is only in the panel, no ratio bar over the card (owner: «вот это в рендере я бы убрал, оно мешает», frameBar: false).
+    The card keeps its frame, the scene's render size follows it, and the still is drawn again in the new frame."""
     port, lib = hy
     with sync_playwright() as p:
         browser = p.chromium.launch(args=["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
@@ -337,44 +371,44 @@ def test_card_frame_changes_like_a_picture_crop(hy):
         model_in_the_middle(page, scene)
         size = lambda: page.evaluate(f"() => {{ const i = board.items[{json.dumps(cid)}]; return [i.w, i.h, i.lock || null]; }}")
         assert not page.locator(".tidy.cratio").count(), "at rest the card scales like a picture, no frame bar"
-        page.dblclick(".plg[data-type=model3d]"); page.wait_for_selector(".m3ui .m3l .row"); go_on(page)
+        page.dblclick(".plg[data-type=model3d]", position=CORNER); page.wait_for_selector(".m3ui .m3l .row"); go_on(page)
         live1 = page.evaluate("() => window.__m3on()")
         # «Сбросить» (owner 2026-10-04): pale while nothing changed; a change of the background's transparency leaves the camera where it was
         # (a stale coordinates folder moved it) and lights the dock's reset and the panel's; the dock's reset brings everything back
-        doc0 = json.loads(scene.read_text()); item0 = page.evaluate(f"() => JSON.parse(JSON.stringify(board.items[{json.dumps(cid)}]))")
+        doc0 = scene_now(scene); item0 = page.evaluate(f"() => JSON.parse(JSON.stringify(board.items[{json.dumps(cid)}]))")
         page.wait_for_timeout(500)
         assert page.locator("#dock [data-a=reset]").is_disabled() and page.locator(".m3r .dk button.hy-reset").is_disabled()
-        tr = page.locator(".m3r [role=slider]").filter(has_text="Прозрачность").first
-        tr.focus(); [page.keyboard.press("ArrowRight") for _ in range(10)]; go_on(page)
+        tr = page.locator(".m3r .hy-slider").filter(has_text="Прозрачность").first
+        tr.locator("input").focus(); [page.keyboard.press("ArrowRight") for _ in range(10)]; go_on(page)
         page.wait_for_function(f"() => (board.items[{json.dumps(cid)}].bg || {{}}).opacity === 90", timeout=10000); page.wait_for_timeout(600)
-        assert json.loads(scene.read_text())["cameras"][0]["loc"] == doc0["cameras"][0]["loc"], "the camera stays when the background changes"
+        assert scene_now(scene)["cameras"][0]["loc"] == doc0["cameras"][0]["loc"], "the camera stays when the background changes"
         assert page.locator("#dock [data-a=reset]").is_enabled() and page.locator(".m3r .dk button.hy-reset").is_enabled()
-        # the reset eases into red (ui.css .hy-reset, 0.15 s) and a software-GL frame may still be at its start: read it once it rests
-        # (a finished entrance animation with fill stays in getAnimations(): only running ones count)
+        # the dock's reset is a neutral round icon among the tools (owner 2026-10-06: red is only for deleting), its words in its label;
+        # read it once it rests (a finished entrance animation with fill stays in getAnimations(): only running ones count)
         page.wait_for_function("() => document.querySelector('#dock [data-a=reset]').getAnimations().every(a => a.playState !== 'running')", timeout=5000)
         bgc = page.evaluate("() => getComputedStyle(document.querySelector('#dock [data-a=reset]')).backgroundColor")
         r, g, b = [float(x) for x in __import__("re").findall(r"[\d.]+", bgc)[:3]]
-        assert r > 180 and g < 90 and b < 90, f"solid red when there is something to reset: {bgc}"
-        assert "Сбросить" in page.locator("#dock [data-a=reset]").inner_text(), "the reset carries its word"
+        assert not (r > 180 and g < 90 and b < 90), f"the dock's reset is not red: {bgc}"
+        assert "Сбросить" in page.locator("#dock [data-a=reset]").get_attribute("aria-label"), "the reset carries its word"
         page.click("#dock [data-a=reset]"); go_on(page)
         page.wait_for_function(f"() => JSON.stringify(board.items[{json.dumps(cid)}].bg) === {json.dumps(json.dumps(item0.get('bg'), separators=(',', ':')))} || board.items[{json.dumps(cid)}].bg === undefined", timeout=10000)
         page.wait_for_timeout(500)
         assert page.locator("#dock [data-a=reset]").is_disabled()
-        dist = page.locator(".m3r [role=slider]").filter(has_text="Расстояние").first
+        dist = page.locator(".m3r .hy-slider").filter(has_text="Расстояние").first
         assert float(dist.inner_text().split()[-1]) > 20, "«Положение камеры» shows the camera's real distance at once"
         bw = page.evaluate("() => [...document.querySelectorAll('#dock .plgdock .wide')].map(b => b.scrollWidth <= b.clientWidth + 1)")
         assert bw and all(bw), "«Снимок» and «Готово» fit their buttons"
         # the editor's buttons are in the board's dock, the board's own are away until «Готово» (owner 2026-10-04)
         assert page.locator("#dock.plg-mode .m3t [data-tool=smart]").is_visible() and not page.locator("#dock #tlib").is_visible()
         shot(page, "dock-3d")
-        page.wait_for_selector(".tidy.cratio [data-frame=free].on")
+        assert not page.locator(".tidy.cratio").count(), "no ratio bar over the card in the studio: the frame is in the Scene panel"
         # «Тянуть» (owner 2026-10-04: «I pull up and it goes down»): the touched point stays under the mouse. A drag from the top of the
         # phone down toward its pivot (near the bottom) brings the top toward the camera, and the top goes down on screen with the mouse
         def qrot(q, v):
             w, x, y, z = q; tx, ty, tz = 2 * (y * v[2] - z * v[1]), 2 * (z * v[0] - x * v[2]), 2 * (x * v[1] - y * v[0])
             return [v[0] + w * tx + y * tz - z * ty, v[1] + w * ty + z * tx - x * tz, v[2] + w * tz + x * ty - y * tx]
         top = lambda o: [a + b for a, b in zip(o["loc"], qrot(o["rot"], [0, 0, 0.08]))]
-        d0 = json.loads(scene.read_text()); ph = next(o for o in d0["objects"] if o["src"].get("type") == "model"); cam = d0["cameras"][0]["loc"]
+        d0 = scene_now(scene); ph = next(o for o in d0["objects"] if o["src"].get("type") == "model"); cam = d0["cameras"][0]["loc"]
         page.click('.m3t [data-tool="smart"]'); page.wait_for_timeout(800); go_on(page)
         r = page.locator("canvas.m3live").bounding_box()
         page.mouse.move(r["x"] + r["width"] * 0.5, r["y"] + r["height"] * 0.3); page.mouse.down()
@@ -384,11 +418,14 @@ def test_card_frame_changes_like_a_picture_crop(hy):
         assert math.dist(top(ph1), cam) < math.dist(top(ph), cam) - 0.01, (top(ph), top(ph1), cam)
         page.click('.m3t [data-tool="select"]'); page.evaluate("() => document.activeElement && document.activeElement.blur()")
         page.keyboard.press("Escape"); page.wait_for_selector(".m3r .ih >> text=Сцена")   # Esc drops the pick: the scene's settings again
-        page.click(".tidy.cratio [data-frame='1:1']"); go_on(page)
+        def frame_to(label):   # the Scene panel's «Кадр», the same choice as the board's frame bar
+            page.locator(".m3r .dialkit-select-trigger", has_text="Кадр").first.click()
+            page.locator(".dialkit-select-option", has_text=label).first.click(); page.wait_for_timeout(700); go_on(page)
+        frame_to("1:1")
         w, h, lock = size(); assert abs(w - h) <= 1 and lock == "1:1", (w, h, lock)
         wait_file(scene, lambda d: d["render"]["x"] == d["render"]["y"])
-        assert page.locator(".tidy.cratio [data-frame='1:1'].on").count()
-        page.click(".tidy.cratio [data-frame=free]"); go_on(page)
+        assert page.locator(".m3r .dialkit-select-trigger", has_text="Кадр").first.inner_text().strip().endswith("1:1")
+        frame_to("Свободно")
         assert size()[2] is None
         e = page.locator(f".he[data-resize={cid}][data-rc=e]").bounding_box()
         page.mouse.move(e["x"] + e["width"] / 2, e["y"] + e["height"] / 2); page.mouse.down()
@@ -396,49 +433,50 @@ def test_card_frame_changes_like_a_picture_crop(hy):
         w2, h2, _ = size(); assert w2 > w + 50 and abs(h2 - h) <= 1, (w, h, w2, h2)
         wait_file(scene, lambda d: abs(d["render"]["x"] / d["render"]["y"] - w2 / h2) < 0.01)
         # «Положение камеры», as in KeyShot (owner 2026-10-04): the azimuth turns the camera round the point it looks at, the distance stays
-        k0 = json.loads(scene.read_text())["cameras"][0]
-        az = page.locator(".m3r [role=slider]").filter(has_text="Азимут").first
-        v0 = float(az.inner_text().split()[-1]); az.focus(); [page.keyboard.press("ArrowRight") for _ in range(30)]; go_on(page)
-        k1 = wait_file(scene, lambda d: d["cameras"][0]["loc"] != k0["loc"])["cameras"][0]; page.wait_for_timeout(400); k1 = json.loads(scene.read_text())["cameras"][0]
+        k0 = scene_now(scene)["cameras"][0]
+        az = page.locator(".m3r .hy-slider").filter(has_text="Азимут").first
+        v0 = float(az.inner_text().split()[-1]); az.locator("input").focus(); [page.keyboard.press("ArrowRight") for _ in range(30)]; go_on(page)
+        k1 = wait_file(scene, lambda d: d["cameras"][0]["loc"] != k0["loc"])["cameras"][0]; page.wait_for_timeout(400); k1 = scene_now(scene)["cameras"][0]
         hz = lambda l: math.hypot(l[0], l[1])   # the phone stands at the origin: the camera keeps its height and its distance on the floor
         assert abs(k1["loc"][2] - k0["loc"][2]) < 0.01 and abs(hz(k1["loc"]) - hz(k0["loc"])) < 0.02, (k0["loc"], k1["loc"])
         assert float(az.inner_text().split()[-1]) != v0
         # the twist stays when the camera is then turned with the mouse (2026-10-04: the orbit control undid it at once)
-        tw = page.locator(".m3r [role=slider]").filter(has_text="Крен").first
-        tw.focus(); [page.keyboard.press("ArrowRight") for _ in range(12)]; go_on(page); page.wait_for_timeout(600)
-        r = page.locator("canvas.m3live").bounding_box(); page.mouse.move(r["x"] + r["width"] * 0.3, r["y"] + r["height"] * 0.8); page.mouse.down()
-        page.mouse.move(r["x"] + r["width"] * 0.36, r["y"] + r["height"] * 0.8, steps=4); page.mouse.up(); page.wait_for_timeout(800); go_on(page)
-        twist = float(page.locator(".m3r [role=slider]").filter(has_text="Крен").first.inner_text().split()[-1])
+        tw = page.locator(".m3r .hy-slider").filter(has_text="Крен").first
+        tw.locator("input").focus(); [page.keyboard.press("ArrowRight") for _ in range(12)]; go_on(page); page.wait_for_timeout(600)
+        r = page.locator("canvas.m3live").bounding_box(); page.keyboard.down("Alt"); page.mouse.move(r["x"] + r["width"] * 0.3, r["y"] + r["height"] * 0.8)
+        page.mouse.down(); page.mouse.move(r["x"] + r["width"] * 0.36, r["y"] + r["height"] * 0.8, steps=4); page.mouse.up(); page.keyboard.up("Alt")
+        page.wait_for_timeout(800); go_on(page)
+        twist = float(page.locator(".m3r .hy-slider").filter(has_text="Крен").first.inner_text().split()[-1])
         assert abs(twist - 12) <= 2, f"twist after a mouse turn: {twist}"
         # «Координаты» (a folder that opens): the camera's location as Blender shows it
-        c0 = json.loads(scene.read_text())["cameras"][0]["loc"]
+        c0 = scene_now(scene)["cameras"][0]["loc"]
         page.locator(".m3r").get_by_text("Координаты", exact=True).first.click(); page.wait_for_timeout(300)
-        cx = page.locator(".m3r [role=slider]").filter(has_text="X").first
-        cx.focus(); [page.keyboard.press("ArrowRight") for _ in range(20)]; go_on(page)
+        cx = page.locator(".m3r .hy-slider").filter(has_text="X").first
+        cx.locator("input").focus(); [page.keyboard.press("ArrowRight") for _ in range(20)]; go_on(page)
         c1 = wait_file(scene, lambda d: abs(d["cameras"][0]["loc"][0] - c0[0]) > 0.01)["cameras"][0]["loc"]
         assert abs(c1[1] - c0[1]) < 0.005 and abs(c1[2] - c0[2]) < 0.005, (c0, c1)
         # «Широкий ↔ изометрия»: a dolly zoom; the lens grows, the camera backs away along its line of sight by the same factor
-        c1 = json.loads(scene.read_text())["cameras"][0]; shot(page, "dolly-0")
-        sl = page.locator(".m3r [role=slider]").filter(has_text="Широкий").first
-        sl.focus(); [page.keyboard.press("ArrowRight") for _ in range(15)]; go_on(page)
+        c1 = scene_now(scene)["cameras"][0]; shot(page, "dolly-0")
+        sl = page.locator(".m3r .hy-slider").filter(has_text="Широкий").first
+        sl.locator("input").focus(); [page.keyboard.press("ArrowRight") for _ in range(15)]; go_on(page)
         c2 = wait_file(scene, lambda d: d["cameras"][0]["lens"] > c1["lens"] * 1.5)["cameras"][0]
-        page.wait_for_timeout(500); c2 = json.loads(scene.read_text())["cameras"][0]
+        page.wait_for_timeout(500); c2 = scene_now(scene)["cameras"][0]
         shot(page, "dolly-1")
-        sl.focus(); [page.keyboard.press("ArrowLeft") for _ in range(45)]; go_on(page); page.wait_for_timeout(800); shot(page, "dolly-2")
-        sl.focus(); [page.keyboard.press("ArrowRight") for _ in range(40)]; go_on(page); page.wait_for_timeout(800)
-        c2 = json.loads(scene.read_text())["cameras"][0]
-        assert c2["rot"] == c1["rot"], "the camera keeps its direction"
+        sl.locator("input").focus(); [page.keyboard.press("ArrowLeft") for _ in range(45)]; go_on(page); page.wait_for_timeout(800); shot(page, "dolly-2")
+        sl.locator("input").focus(); [page.keyboard.press("ArrowRight") for _ in range(40)]; go_on(page); page.wait_for_timeout(800)
+        c2 = scene_now(scene)["cameras"][0]
+        assert max(abs(x - y) for x, y in zip(c2["rot"], c1["rot"])) < 1e-9, ("the camera keeps its direction (to the float's last digits)", c1["rot"], c2["rot"])
         dv = [b - a for a, b in zip(c1["loc"], c2["loc"])]; dist = math.sqrt(sum(x * x for x in dv))
         d1 = dist / (c2["lens"] / c1["lens"] - 1)   # the distance to the point it looks at, from how far it moved
         if os.environ.get("HYIMG_PROBE"): print("DOLLY", c1["loc"], c1["rot"], c1["lens"], c2["loc"], c2["rot"], c2["lens"], dist, d1)
         assert 0.3 < d1 < 1.5, (c1, c2, d1)
-        assert page.locator(".m3r [role=slider]").filter(has_text="Объектив").first.inner_text().strip().endswith(str(round(c2["lens"])))
+        assert page.locator(".m3r .hy-slider").filter(has_text="Объектив").first.inner_text().strip().endswith(str(round(c2["lens"])))
         # the list on the right is the same choice: 16:9 from it turns the card wide
         page.evaluate(f"() => HY.frame({json.dumps(cid)}, '16:9')"); go_on(page)
         w3, h3, lock3 = size(); assert lock3 == "16:9" and abs(w3 / h3 - 16 / 9) < 0.01
-        page.click(".tidy.cratio [data-frame=flip]"); go_on(page)
+        page.click(".m3r .m3res [data-flip]"); go_on(page)
         w4, h4, lock4 = size(); assert lock4 == "9:16" and abs(w4 / h4 - 9 / 16) < 0.01
-        go_on(page); page.click('.m3t [data-tool="smart"]'); page.click(".m3t [data-a=done]")   # closed with «Тянуть» on, as the owner did
+        go_on(page); page.click('.m3t [data-tool="smart"]'); page.click(".m3t [data-a=save]")   # closed with «Тянуть» on, as the owner did
         page.wait_for_function("() => !document.querySelector('.m3ui')")
         assert page.locator("#dock #tlib").is_visible() and not page.locator("#dock .plgdock").count(), "the dock is the board's again"
         page.wait_for_function(f"() => {{ const i = document.querySelector('.plg[data-id={cid}] img.m3'); return i && i.complete && i.naturalWidth && Math.abs(i.naturalWidth / i.naturalHeight - 9 / 16) < 0.02 }}", timeout=30000)
@@ -447,7 +485,7 @@ def test_card_frame_changes_like_a_picture_crop(hy):
         assert len(stills) == 1 and stills[0].startswith(cid), stills
         assert not page.locator(".tidy.cratio").count()
         # opened again: the first session's listeners went with it (2026-10-04: a pull ran twice and a click drew two panels)
-        page.dblclick(f".plg[data-id={cid}]"); page.wait_for_selector(".m3ui .m3l .row"); go_on(page)
+        page.dblclick(f".plg[data-id={cid}]", position=CORNER); page.wait_for_selector(".m3ui .m3l .row"); go_on(page)
         page.click('.m3t [data-tool="smart"]'); go_on(page)
         r = page.locator("canvas.m3live").bounding_box(); page.mouse.move(r["x"] + r["width"] * 0.5, r["y"] + r["height"] * 0.45); page.mouse.down()
         for i in range(5): page.mouse.move(r["x"] + r["width"] * (0.5 + 0.02 * i), r["y"] + r["height"] * 0.45); page.wait_for_timeout(60)
@@ -465,13 +503,15 @@ SITE2 = {"format": "hyimg-scene/1", "rev": 1, "render": {"x": 2048, "y": 2048}, 
                       "fit": "VERTICAL", "shift": [-0.0098, 0.4548], "clip": [0.01, 100], "id": "jo1wd256"}], "active_camera": "jo1wd256"}
 
 
-def board_server(tmp_path, items, scenes):
-    """a server on a fresh library with the given scenes ({folder: doc}) and board items; returns (port, lib, stop)"""
+def board_server(tmp_path, items, scenes, lang="ru"):
+    """a server on a fresh library with the given scenes ({folder: doc}) and board items; returns (port, lib, stop). lang: the app's
+    interface language (cv.lang; "en" is the app's default and leaves the setting out)"""
     lib, state, plugins = tmp_path / "lib", tmp_path / "state", tmp_path / "plugins"
     tiny_model(lib)
     for n, doc in scenes.items():
         (lib / f"3d/scenes/{n}").mkdir(parents=True); (lib / f"3d/scenes/{n}/scene.json").write_text(json.dumps(doc))
     (state / "boards").mkdir(parents=True); plugins.mkdir(); (plugins / "3d").symlink_to(HERE)
+    (state / "app-settings.json").write_text(json.dumps({"cv.lang": "ru"} if lang == "ru" else {}))
     (state / "boards/main.json").write_text(json.dumps({"items": items, "groups": {}, "revision": 1}))
     port = free_port()
     env = {k: v for k, v in os.environ.items() if not k.startswith(("HYIMG_", "REVIEW_"))}
@@ -492,7 +532,7 @@ def test_a_dolly_then_the_background_leaves_the_camera(tmp_path):
     port, lib, stop = board_server(tmp_path, {"c": {"type": "model3d", "scene": "3d/scenes/a/scene.json", "camera": "jo1wd256", "x": 0, "y": 0, "w": 600, "h": 600}}, {"a": SITE2})
     scene = lib / "3d/scenes/a/scene.json"
     def drag(page, name, to):
-        b = page.locator(".m3r [role=slider]").filter(has_text=name).first.bounding_box(); y = b["y"] + b["height"] / 2
+        b = page.locator(".m3r .hy-slider").filter(has_text=name).first.bounding_box(); y = b["y"] + b["height"] / 2
         page.mouse.move(b["x"] + b["width"] * 0.6, y); page.mouse.down()
         for i in range(1, 9): page.mouse.move(b["x"] + b["width"] * (0.6 + (to - 0.6) * i / 8), y); page.wait_for_timeout(40)
         page.mouse.up(); page.wait_for_timeout(1500); go_on(page)
@@ -504,12 +544,11 @@ def test_a_dolly_then_the_background_leaves_the_camera(tmp_path):
             page.goto(f"http://127.0.0.1:{port}/canvas.html")
             page.wait_for_function("() => typeof PLGST !== 'undefined' && PLGST.some(p => p.name === '3d' && p.ok)", timeout=20000)
             page.wait_for_timeout(2000); page.dblclick(".plg[data-id=c]"); page.wait_for_timeout(2000); go_on(page)
-            page.wait_for_selector(".m3r [role=slider]"); page.wait_for_timeout(1000)
+            page.wait_for_selector(".m3r .hy-slider"); page.wait_for_timeout(1000)
             drag(page, "Широкий", 0.35)
-            k0 = json.loads(scene.read_text())["cameras"][0]
-            assert k0["lens"] != SITE2["cameras"][0]["lens"], "the dolly changed the lens"
+            k0 = wait_file(scene, lambda d: d["cameras"][0]["lens"] != SITE2["cameras"][0]["lens"])["cameras"][0]   # the studio's scene (wait_file)
             drag(page, "Прозрачность", 0.2)
-            k1 = json.loads(scene.read_text())["cameras"][0]
+            k1 = scene_now(scene)["cameras"][0]
             assert k1["lens"] == k0["lens"] and math.dist(k1["loc"], k0["loc"]) < 1e-4, (k0, k1)
             assert not errors, errors
             browser.close()
@@ -529,6 +568,7 @@ def test_three_cards_get_real_stills_and_one_link(tmp_path):
     card = lambda n, x, y, **k: {"type": "model3d", "scene": f"3d/scenes/{n}/scene.json", "camera": "jo1wd256", "x": x, "y": y, "w": 380, "h": 380, **k}
     items = {"m1": card("a", 0, 0), "m2": card("b", 400, 0, w=300), "m3": card("a", 0, 420, bg={"transparent": False, "color": "#767676", "opacity": 48})}
     (state / "boards").mkdir(parents=True); plugins.mkdir(); (plugins / "3d").symlink_to(HERE)
+    (state / "app-settings.json").write_text(json.dumps({"cv.lang": "ru"}))   # the board's Russian words (owner 2026-10-06: two languages)
     (state / "boards/main.json").write_text(json.dumps({"items": items, "groups": {}, "revision": 1}))
     port = free_port()
     env = {k: v for k, v in os.environ.items() if not k.startswith(("HYIMG_", "REVIEW_"))}
@@ -584,16 +624,16 @@ def test_numbers_are_typed_and_a_drag_goes_from_the_value(tmp_path):
             page.goto(f"http://127.0.0.1:{port}/canvas.html")
             page.wait_for_function("() => typeof PLGST !== 'undefined' && PLGST.some(p => p.name === '3d' && p.ok)", timeout=20000)
             page.wait_for_timeout(2000); page.dblclick(".plg[data-id=c]"); page.wait_for_timeout(2000); go_on(page)
-            page.wait_for_selector(".m3r [role=slider]"); page.wait_for_timeout(1000)
-            lens = page.locator(".m3r .dialkit-slider-wrapper").filter(has_text="Объектив").first
-            lens.locator(".dialkit-slider-value").hover(); page.wait_for_timeout(100); lens.locator(".dialkit-slider-value").click()
-            lens.locator("input.dialkit-slider-input").fill("50"); page.keyboard.press("Enter"); go_on(page)
+            page.wait_for_selector(".m3r .hy-slider"); page.wait_for_timeout(1000)
+            lens = page.locator(".m3r .hy-slider-wrapper").filter(has_text="Объектив").first
+            lens.locator(".hy-slider-v").hover(); page.wait_for_timeout(100); lens.locator(".hy-slider-v").click()
+            lens.locator("input.hy-slider-ed").fill("50"); page.keyboard.press("Enter"); go_on(page)
             wait_file(scene, lambda d: d["cameras"][0]["lens"] == 50)
-            tilt = page.locator(".m3r .dialkit-slider-wrapper").filter(has_text="Наклон").first
-            tilt.locator("[role=slider]").dblclick(position={"x": 60, "y": 10})
-            assert tilt.locator("input.dialkit-slider-input").is_visible(), "a double click on the line types the number"
+            tilt = page.locator(".m3r .hy-slider-wrapper").filter(has_text="Наклон").first
+            tilt.locator(".hy-slider").dblclick(position={"x": 60, "y": 10})
+            assert tilt.locator("input.hy-slider-ed").is_visible(), "a double click on the line types the number"
             page.keyboard.press("Escape")
-            az = page.locator(".m3r [role=slider]").filter(has_text="Азимут").first
+            az = page.locator(".m3r .hy-slider").filter(has_text="Азимут").first
             val = lambda: float(az.inner_text().split()[-1].replace("−", "-"))
             def move(dx, shift=False):
                 b = az.bounding_box(); x, y = b["x"] + b["width"] * 0.3, b["y"] + b["height"] / 2; v0 = val()
@@ -609,3 +649,66 @@ def test_numbers_are_typed_and_a_drag_goes_from_the_value(tmp_path):
             browser.close()
     finally:
         stop()
+
+
+@pytest.mark.parametrize("hy", ["en"], indirect=True)
+def test_the_plugin_speaks_english_by_default(hy):
+    """The interface in English (owner 2026-10-06: «make 2 versions, Russian and English, switchable in settings», English the default):
+    without cv.lang in the app's settings everything the plugin shows is English: the dock button, the card's badge and info, a new
+    scene's names, the editor's toolbar, «+» menu, layers and every inspector panel (scene, object, light, camera), the board's undo
+    notes. Scoped to the plugin's own elements: the board's own words are another module's."""
+    port, lib = hy
+    cyr = __import__("re").compile(r"[А-Яа-яЁё]")
+    # the project's models in «+» carry their own titles (model.json, the owner's data: the test model's is Russian), left out
+    texts = """(sel) => [...document.querySelectorAll(sel)].map(r0 => { const r = r0.cloneNode(true); r.querySelectorAll('[data-models]').forEach(x => x.remove());
+        return r.textContent + ' ' + [r, ...r.querySelectorAll('[title],[aria-label],[placeholder]')]
+        .map(e => [e.getAttribute('title'), e.getAttribute('aria-label'), e.getAttribute('placeholder')].filter(Boolean).join(' ')).join(' '); }).join(' | ')"""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(args=["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
+        page = browser.new_page(viewport={"width": 1500, "height": 950})
+        errors = []; page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"http://127.0.0.1:{port}/canvas.html")
+        page.wait_for_function("() => typeof PLGST !== 'undefined' && PLGST.some(p => p.name === '3d' && p.ok)", timeout=20000)
+        assert page.evaluate("() => HY.lang") == "en"
+        page.evaluate("() => { window.__notes = []; const c = window.commit; window.commit = (b, n) => { if (n) __notes.push(n); return c(b, n); }; }")
+        tip = page.locator("#dock button[title^='3D scene']").get_attribute("title")
+        assert not cyr.search(tip), tip
+        page.click("#dock button[title^='3D scene']")
+        page.wait_for_function("() => Object.values(board.items).some(i => i.type === 'model3d' && i.scene)")
+        cid, it = page.evaluate("() => Object.entries(board.items).find(([k, i]) => i.type === 'model3d')")
+        doc = wait_file(lib / it["scene"], lambda d: len(d["objects"]) == 2)
+        names = [o["name"] for o in doc["objects"]] + [l["name"] for l in doc["lights"]] + [c["name"] for c in doc["cameras"]]
+        assert names == ["Object", "Floor", "Key", "Fill", "Camera 1"] and not cyr.search(doc["objects"][0]["ai"]), doc
+        page.wait_for_function("() => { const i = document.querySelector('.plg[data-type=model3d] img.m3'); return i && i.src.startsWith('data:image') }", timeout=30000)
+        assert not cyr.search(page.evaluate(texts, ".plg[data-type=model3d]"))
+        page.evaluate(f"() => {{ sel = new Set([{json.dumps(cid)}]); render(); }}"); page.wait_for_timeout(300)
+        page.evaluate(f"() => {{ sel = new Set([{json.dumps(cid)}]); render(); }}"); page.wait_for_timeout(300)   # the info card reads the scene once
+        info = page.locator("#iN").inner_text() + " " + page.locator("#iM").inner_text() + " " + page.locator("#iP").inner_text()
+        assert "3D scene" in info and "2 objects, 2 lights, 1 camera" in info and not cyr.search(info), info
+        # the editor: the scene's panel, then an object, a light and the camera
+        page.dblclick(".plg[data-type=model3d]", position=CORNER); page.wait_for_selector(".m3ui .m3l .row"); go_on(page)
+        seen = []
+        def look(what):
+            go_on(page); page.wait_for_timeout(300)
+            t = " ".join(page.evaluate(texts, ".m3ui, #dock .plgdock").split()); seen.append(t)   # DialKit puts a space before a capital: «Power,  W»
+            assert not cyr.search(t), (what, [w for w in cyr.findall(t)][:5], t[:3000])
+        look("scene")
+        assert "Lens, mm" in seen[-1] and "Wide ↔ isometric" in seen[-1] and "Snapshot" in seen[-1] and "Reset" in seen[-1]
+        page.locator(".m3l .row", has_text="Object").first.click(); look("object")
+        assert "Location, cm" in seen[-1] and "Prompt" in seen[-1]
+        page.locator(".m3l .row", has_text="Key").first.click(); look("light")
+        assert "Power, W" in seen[-1]
+        page.locator(".m3l .row[data-cam]").first.click(); look("camera")
+        assert "Camera position" in seen[-1]
+        page.click(".m3t [data-plus]"); look("menu")
+        assert "Cube" in seen[-1] and "Area light" in seen[-1]
+        page.click(".m3menu [data-add=box]"); go_on(page)
+        doc = wait_file(lib / it["scene"], lambda d: any(o["src"].get("shape") == "box" for o in d["objects"]))
+        assert any(o["name"] == "Cube 1" for o in doc["objects"]), doc["objects"]
+        look("box")
+        page.keyboard.press("Escape"); page.keyboard.press("Escape"); page.keyboard.press("Meta+Enter")   # «Save» ⌘↵: Esc with changes asks first
+        page.wait_for_function("() => !document.querySelector('.m3ui')", timeout=15000)
+        notes = page.evaluate("() => __notes")
+        assert notes and not any(cyr.search(n) for n in notes), notes
+        assert not errors, errors
+        browser.close()

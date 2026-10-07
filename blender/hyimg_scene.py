@@ -249,6 +249,10 @@ def apply_scene(scene_path, fresh=False):
         L.color = d.get("color", [1, 1, 1])
         # power in watts as Blender shows it, whatever exposure the light has
         L.energy = d.get("power", 10) / (2 ** getattr(L, "exposure", 0))
+        if hasattr(L, "use_temperature"):   # the colour temperature in K (the canvas's temp, 2026-10-07): the colour × a black body
+            L.use_temperature = bool(d.get("temp"))
+            if d.get("temp"):
+                L.temperature = float(d["temp"])
         if t == "AREA":
             L.shape = d.get("shape", "SQUARE")
             L.size = d.get("size", 0.5)
@@ -355,6 +359,8 @@ def export_scene(scene_path, cards=False):
                 d.update(spot_size=r5(math.degrees(L.spot_size)), spot_blend=r5(L.spot_blend))
             if L.type == "SUN":
                 d["angle"] = r5(L.angle)
+            if getattr(L, "use_temperature", False):
+                d["temp"] = r5(L.temperature)
             if o.hide_render:
                 d["hidden"] = True
             lights.append(d)
