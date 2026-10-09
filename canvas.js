@@ -177,7 +177,9 @@ export function register(hy) {
     /* the «3D» mark is the board's kind mark (owner 2026-10-06: «why is it not consistent with the marks on pictures and videos»): the
        board's .mk pill (review/canvas.html, the marks' one system), a cube before «3D» as ▶ before a video's time; its place, size, fold
        and the way it leaves and comes are the board's, which sizes it from the card on screen as every other mark (cull, mkApply) */
-    .plg-live { outline: calc(2px / var(--z)) solid var(--sel) !important; overflow: visible !important; background: transparent !important; }
+    /* no outline round a live card (owner 2026-10-08: «обводка эта дурацкая вокруг»): Hyimg lifts the card a mode edits with a shadow;
+       the rule was global, it drew round the frames plugin's HTML live view and Dev mode's page too */
+    .plg-live { overflow: visible !important; background: transparent !important; }
     .plg-live, .plg-live *, .m3ui .row { cursor: default !important; }   /* owner 2026-10-03: the mouse stays an arrow, no hand */
     .plg-live img.m3, .plg-live .mk { visibility: hidden; }   /* the still picture under the live view would show through a see-through background */
     .plg-live canvas.m3live { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
@@ -206,8 +208,11 @@ export function register(hy) {
     .tidy.plgedit .m3lk .hy-chev { width: 12px; height: 12px; color: var(--sub); transform: rotate(90deg); }
     .tidy.plgedit .m3lk select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font: inherit; border: 0; }
     .tidy.plgedit :is(button, select):focus, .tidy.plgedit :is(button, select):focus-visible { outline: none; box-shadow: none; }
-    .tidy.plgedit .m3rend { position: relative; overflow: hidden; flex: none; min-width: 84px; padding: 0 16px; justify-content: center; background: var(--ink); color: var(--panel); font-weight: 600; font-variant-numeric: tabular-nums; }
-    .tidy.plgedit .m3rend:hover { background: color-mix(in srgb, var(--ink) 88%, var(--panel)); }
+    /* Render, the bar's primary, in 3D Studio's pink with white words, its progress the band over it as before (owner 2026-10-09: «Она должна
+       быть такого цвета, в каком режиме мы сейчас находимся») */
+    .tidy.plgedit .m3rend { position: relative; overflow: hidden; flex: none; min-width: 84px; padding: 0 16px; justify-content: center; background: var(--pink);
+      color: var(--hy-on-accent, #fff); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .tidy.plgedit .m3rend:hover { background: color-mix(in srgb, var(--pink) 88%, var(--panel)); }
     .tidy.plgedit .m3rend .pr { position: absolute; inset: 0 auto 0 0; width: calc(var(--p, 0) * 100%); background: color-mix(in srgb, var(--panel) 26%, transparent); transition: width .5s cubic-bezier(.32,.72,0,1); }
     .tidy.plgedit .m3rend .l { position: relative; } .tidy.plgedit .m3rend.busy { cursor: default; }
     .tidy.plgedit .m3stop { width: 34px; padding: 0; justify-content: center; color: var(--sub); } .tidy.plgedit .m3stop:hover { color: var(--ink); }
@@ -224,19 +229,43 @@ export function register(hy) {
     .m3ui .hy-slider { --hy-sl-r: var(--m3-r); }
     .m3ui { --row-ink: color-mix(in srgb, var(--ink) 82%, var(--sub)); --tint: color-mix(in srgb, var(--ink) 3%, transparent);
       color: var(--ink); font: 400 12px/1.35 -apple-system, "SF Pro Text", system-ui, sans-serif; position: static; -webkit-font-smoothing: antialiased; }
-    :root[data-ui="studio"] .m3ui, :root[data-ui="studio"][data-theme="dark"] .m3ui { --pink: #ff4fa3; --pink-ink: #1c0a13; --card: #1b1c1f; --raise: #25262a; --line: #2c2d32; --guide: #34353b; --ink: #ececef; --sub: #9a9ba3; --dim: #64656d; }
-    :root[data-ui="studio"][data-theme="light"] .m3ui { --pink: #e5307f; --pink-ink: #fff; --card: #ffffff; --raise: #f0f0f2; --line: #e3e3e7; --guide: #d9d9de; --ink: #1b1c1f; --sub: #6b6c73; --dim: #9a9ba3; }
+    :root[data-ui="studio"] .m3ui, :root[data-ui="studio"][data-theme="dark"] .m3ui { --pink-ink: #1c0a13; --card: #1b1c1f; --raise: #25262a; --line: #2c2d32; --guide: #34353b; --ink: #ececef; --sub: #9a9ba3; --dim: #64656d; }
+    :root[data-ui="studio"][data-theme="light"] .m3ui { --pink-ink: #fff; --card: #ffffff; --raise: #f0f0f2; --line: #e3e3e7; --guide: #d9d9de; --ink: #1b1c1f; --sub: #6b6c73; --dim: #9a9ba3; }
+    /* 3D Studio wears its colour, its pink (--pink), in both looks (owner 2026-10-09, «конечно» to «3D Studio и Dev Studio пока остаются
+       синими. Дать им их цвета?»; Image Studio's purple is the precedent, hyimg-frames 6e04f1a): every chosen, checked or primary thing of
+       the studio (the picked row, a checked box, a chosen option, a value's fill, the tool in hand and Save in the dock) and the 3D segment
+       of the dock's switch (HY.mode color). It is on the board's root because the dock reads it; blue stays the board's selection */
+    :root { --pink: #ff4fa3; } :root[data-theme="light"] { --pink: #e5307f; }
+    .m3ui { --sel: var(--pink); --hy-sel: var(--pink); --hy-acc: var(--pink); --hy-tint-bg: color-mix(in srgb, var(--pink) 16%, transparent); --hy-tint-ink: var(--pink);
+      --hy-trow-on: color-mix(in srgb, var(--pink) 14%, transparent); --hy-trow-ring: inset 0 0 0 1px color-mix(in srgb, var(--pink) 55%, transparent);
+      --hy-val: color-mix(in srgb, var(--pink) 30%, transparent); --hy-val-drag: color-mix(in srgb, var(--pink) 44%, transparent);
+      --hy-val-on: color-mix(in srgb, var(--pink) 30%, var(--hy-well)); --hy-val-ink: color-mix(in srgb, var(--pink) 14%, var(--ink)); }
+    #dock .plgdock.m3t button:is(.on, .pri) { background: var(--pink) !important; color: var(--hy-on-accent, #fff) !important; }   /* over canvas.html's ink */
+    .m3ui .dialkit-root .dialkit-toggle[data-checked="true"] .dialkit-toggle-track { background: var(--pink); }
+    .m3ui .dialkit-root .dialkit-toggle[data-checked="true"] .dialkit-toggle-thumb { background: var(--hy-on-accent, #fff); }
     /* the panels are the media library's panel (owner 2026-10-06: «why so much inconsistencies in ui»; review/v2.html body.cv-on main): the
        paper, a hairline, 18 px corners, no glass; its rows are the library's rows, 28 px, 13 px type */
-    :root:not([data-ui="studio"]) .m3ui { --pink: var(--sel); --pink-ink: #fff; --card: var(--paper, var(--panel)); --guide: var(--line); --dim: var(--muted); font: 400 13px/1.4 var(--sans); }
-    :root:not([data-ui="studio"]) .m3p { border-radius: 18px; }
-    :root:not([data-ui="studio"]) .m3r .dk .dialkit-root { --dial-row-height: var(--hy-trow-h, 28px); --dial-radius: var(--m3-r); --dial-surface: color-mix(in srgb, var(--ink) 6%, transparent);
-      --dial-surface-hover: color-mix(in srgb, var(--ink) 10%, transparent); --dial-surface-active: color-mix(in srgb, var(--sel) 22%, transparent);
+    :root:not([data-ui="studio"]) .m3ui { --pink-ink: #fff; --card: var(--paper, var(--panel)); --guide: var(--line); --dim: var(--muted); font: 400 13px/1.4 var(--sans); }
+    :root:not([data-ui="studio"]) .m3p:not(.hy-blk) { border-radius: 18px; }
+    /* the layer list and the inspector are blocks of the app, round 12 «A · Line» (owner 2026-10-09: «реализуй уже A Line версию на весь
+       интерфейс»): Hyimg ui/hy/block.css draws their surface, the inspector's tabs, the sections' heads and the wells of their controls */
+    .m3l.hy-blk, .m3r.hy-blk { --card: var(--hy-blk); --m3-r: var(--hy-ctl-r); }
+    :root:not([data-ui="studio"]) .m3r .dk .dialkit-root { --dial-row-height: var(--hy-ctl-h); --dial-radius: var(--m3-r); --dial-surface: var(--hy-well);
+      --dial-surface-hover: var(--hy-well-hov); --dial-surface-active: var(--hy-val); --dial-surface-subtle: var(--hy-pline);
       --dial-text-root: var(--ink); --dial-text-section: var(--sub); --dial-text-label: var(--sub); --dial-text-primary: var(--ink); --dial-text-secondary: var(--sub); --dial-text-tertiary: var(--muted);
       --dial-border: var(--line); --dial-dropdown-bg: var(--panel); font-family: var(--sans); }
-    :root:not([data-ui="studio"]) .m3r .dk .dialkit-root :is(.dialkit-slider-label, .dialkit-toggle-label, .dialkit-button, .dialkit-select-label, .dialkit-text-label, .dialkit-color-label, .dialkit-slider-value) { font-size: 13px; }
+    :root:not([data-ui="studio"]) .m3r .dk .dialkit-root :is(.dialkit-slider-label, .dialkit-toggle-label, .dialkit-button, .dialkit-select-label, .dialkit-text-label, .dialkit-color-label, .dialkit-slider-value) { font-size: 12px; }
+    /* a group of the inspector is a section of the app (.hy-sh): its chevron before its words, 12 px in --sub */
+    .m3r.hy-blk .dk .dialkit-folder:not(.dialkit-folder-root) > .dialkit-folder-header > .dialkit-folder-header-top { flex-direction: row-reverse; justify-content: flex-end; gap: 6px; }
+    .m3r.hy-blk .dk .dialkit-folder-title { font: 500 12px var(--sans); letter-spacing: 0; color: var(--sub); }
+    .m3r.hy-blk .dk .dialkit-folder-icon { width: 16px; height: 16px; padding: 2.5px; opacity: 1; color: var(--muted); transition: rotate .25s var(--hy-ease); }
+    .m3r.hy-blk .dk .dialkit-folder[data-open="true"] > .dialkit-folder-header .dialkit-folder-icon { rotate: 180deg; }   /* open ⌄, shut › as the app's sections */
+    .m3r.hy-blk .dk .dialkit-folder[data-open="false"] > .dialkit-folder-header .dialkit-folder-icon { rotate: -90deg; }
+    .m3r.hy-blk .dk .dialkit-root .dialkit-button { background: var(--hy-wbtn); }   /* a button lies on the block, not in a well (.hy-wbtn) */
+    .m3r.hy-blk .dk .dialkit-root .dialkit-button:hover { background: var(--hy-wbtn-hov); }
     .m3ui .ic { width: 15px; height: 15px; flex: none; }
     .m3p { position: fixed; z-index: 60; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 16px 50px rgba(0,0,0,.35); }
+    .m3p.hy-blk { border-color: var(--hy-pline); border-radius: var(--hy-blk-r); box-shadow: var(--plate-sh); }   /* a block (ui/hy/block.css), its depth by «Тени» */
     /* ⌘. hides them with the board's interface (data-hyui: the board's hyUiOut / hyUiZoom around the window's centre, back with hyUiBack);
        the slide sends each toward its own edge */
     .m3l { --hx: -16px; } .m3r { --hx: 18px; } .m3x { --hy: 16px; } .m3title { --hy: -16px; }
@@ -251,9 +280,9 @@ export function register(hy) {
     /* the key letters are the button's own <kbd> child: the app's rule (ui/keyhints.js, owner 2026-10-05) shows them only while ⌘ is held, over the button's right end, never widening it */
     .m3t button > kbd { display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 5px; font: 600 10px/1 var(--sans, system-ui); background: var(--raise); color: var(--sub); }
     .m3t .plus { background: var(--raise); color: var(--ink); } .m3t .sep { width: 1px; height: 18px; background: var(--line); margin: 0 5px; }
-    .m3t .wide { width: auto; padding: 0 12px; display: flex; gap: 6px; color: var(--ink); background: var(--raise); margin-left: 4px; } .m3t .pri { background: var(--ink); color: var(--card); }
+    .m3t .wide { width: auto; padding: 0 12px; display: flex; gap: 6px; color: var(--ink); background: var(--raise); margin-left: 4px; } .m3t .pri { background: var(--pink); color: var(--hy-on-accent, #fff); }
     .m3t .tip { position: relative; }
-    .m3menu { position: absolute; top: 40px; left: -5px; z-index: 70; min-width: 180px; padding: 5px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 16px 40px rgba(0,0,0,.45); display: grid; gap: 1px; }
+    .m3menu { position: absolute; top: 40px; left: -5px; z-index: 70; min-width: 180px; padding: 5px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--hy-sh-pop, 0 16px 40px rgba(0,0,0,.45)); display: grid; gap: 1px; }
     .m3menu[hidden] { display: none; } .m3menu button { border: 0; border-radius: 6px; background: none; cursor: default; font: inherit; } .m3menu button:hover { background: var(--raise); color: var(--ink); } .m3menu button { width: 100%; height: 28px; display: flex; gap: 8px; justify-content: flex-start; padding: 0 8px; color: var(--row-ink); }
     .m3l { left: var(--l); top: var(--t); bottom: var(--b); width: 240px; display: flex; flex-direction: column; overflow: hidden; padding: 8px 10px 6px; box-sizing: border-box; }
     /* the panels glide with the library when it opens or closes (owner 2026-10-06: «it should move in unison»): --inset-ms is how long the library's own move takes
@@ -268,10 +297,8 @@ export function register(hy) {
        the app's curve (.tr.glide), a drag does not */
     .m3l .tr { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; } .m3l .tr > .none { color: var(--dim); padding: 14px 8px; }
     .m3l .ms { display: flex; flex-direction: column; flex: none; } .m3l .ms[hidden], .m3l .msp[hidden] { display: none; }
-    .m3l .msh { flex: none; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 8px 0 4px; border-radius: var(--hy-trow-r, 8px); user-select: none; cursor: default;
-      font: 600 11px var(--sans, system-ui); letter-spacing: .06em; text-transform: uppercase; color: var(--sub); }   /* the library's section title (v2.html .ftree .fhbtn) */
-    .m3l .msh:hover { color: var(--ink); } .m3l .msh .cnt { margin-left: auto; letter-spacing: 0; }
-    .m3l .mtg { width: 16px; height: 16px; display: grid; place-items: center; flex: none; color: var(--muted, var(--dim)); }
+    .m3l .msh { user-select: none; cursor: default; }   /* a section's head of the app (.hy-sh, ui/hy/block.css) */
+    .m3l .msh:hover { color: var(--ink); }
     .m3l .mtg .hy-chev, .m3l .chev .hy-chev { transition: transform .32s cubic-bezier(.32,.72,0,1); }
     .m3l .ms:not(.shut) .mtg .hy-chev, .m3l .row:not(.closed) .chev .hy-chev { transform: rotate(90deg); }
     .m3l .msb { flex: none; min-height: 0; overflow: hidden auto; scrollbar-width: none; } .m3l .tr.glide .msb { transition: height .32s cubic-bezier(.32,.72,0,1); }
@@ -281,10 +308,8 @@ export function register(hy) {
     .m3l .kids { overflow: hidden; }   /* a tree's rows gliding open or shut (engine.js wrapKids) */
     /* the splitter takes no room (owner 2026-10-06: «странное расстояние ... для этого хендлера»): its 9 px sit over the line between two
        sections, the negative margins give them back, the hairline is drawn in its middle; next to a folded section only the hairline stays */
-    .m3l .msp.hy-split { height: 9px; margin: -4px 0 -5px; border-top: 0; z-index: 2; }
-    .m3l .msp.hy-split::before { content: ""; position: absolute; left: 0; right: 0; top: 4px; height: 1px; background: var(--line, rgba(127,127,127,.25)); pointer-events: none; }
-    .m3l .msp.hy-split::after { top: 3px; }
-    .m3l .hy-split.off { opacity: 1; } .m3l .hy-split.off::after { opacity: 0; }   /* the hairline stays between sections, the grip only where it can move */
+    .m3l .msp.hy-split { height: 9px; margin: -4px 0 -5px; z-index: 2; }   /* the app's Line (ui/split.js): a hairline, the accent under the pointer */
+    .m3l .hy-split.off { opacity: 1; }   /* the hairline stays between sections, the accent only where it can move */
     /* the rows are the library's folder rows (review/v2.html .frow, ui/look.css --hy-trow-*): 28 px, 8 px corners, grey hover; the picked one
        is the app's selected row, the image editor's selected layer: a fill and a line in the selection colour (owner 2026-10-07) */
     .m3l .row { display: flex; align-items: center; height: var(--hy-trow-h, 28px); padding: 0 4px 0 4px; border-radius: var(--hy-trow-r, 8px); color: var(--sub); user-select: none; font-size: 13px; }
@@ -311,14 +336,8 @@ export function register(hy) {
     .m3r .m3why { display: flex; align-items: center; gap: 6px; margin: 8px 14px 0; } .m3r .m3why svg { flex: none; }
     .m3r { right: var(--r); top: var(--t); bottom: var(--b); width: 280px; overflow: auto; display: flex; flex-direction: column; }
     /* the inspector's head is a row of the same system: the thing's icon, its name, what it is, at the panel's padding */
-    .m3r .ih { display: flex; align-items: center; gap: 8px; min-height: var(--hy-trow-h, 28px); padding: 8px 14px 8px 14px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--card); z-index: 2; }
-    /* Properties | History, the image studio's tabs (hyimg-frames editor .tabs .tab), and its History rows (.hrow, .cur, .fut) */
-    .m3r .m3tabs { display: flex; align-items: center; gap: 2px; height: 38px; padding: 0 6px; flex: none; border-bottom: 1px solid var(--line); }
-    .m3r .m3tab { height: 26px; padding: 0 10px; border: 0; border-radius: var(--m3-r, 6px); background: transparent; color: var(--muted, var(--dim));
-      font: 500 12.5px var(--sans, system-ui); cursor: pointer;
-      transition: background .18s cubic-bezier(.32,.72,0,1), color .18s cubic-bezier(.32,.72,0,1); }
-    .m3r .m3tab:hover { color: var(--sub); background: color-mix(in srgb, var(--ink) 6%, transparent); }
-    .m3r .m3tab.on { color: var(--ink); background: var(--raise); box-shadow: inset 0 0 0 1px var(--line); }
+    .m3r .ih { display: flex; align-items: center; gap: 8px; min-height: var(--hy-trow-h, 28px); padding: 4px 14px 8px 14px; position: sticky; top: 0; background: var(--card); z-index: 2; }
+    /* Properties | History: the block header's tabs (.hy-bh), as Image Studio's; its History rows (.hrow, .cur, .fut) */
     .m3r.hist > :is(.ih, .inf, .dk) { display: none; }
     .m3r .m3hist:not([hidden]) { padding: 6px; display: flex; flex-direction: column; gap: 1px; }
     .m3r .hrow { display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 8px; border: 0; border-radius: var(--m3-r, 6px); background: transparent;
@@ -352,6 +371,14 @@ export function register(hy) {
     .m3r .m3res .lk:hover { background: var(--raise); color: var(--ink); } .m3r .m3res .lk.on { color: var(--ink); background: var(--raise); box-shadow: inset 0 0 0 1px var(--line); }
     .m3r .m3res .lk:disabled { opacity: .35; } .m3r .m3res .seg { flex: 1; display: flex; } .m3r .m3res .seg button { flex: 1; font-variant-numeric: tabular-nums; }
     .m3r .m3res.m3na { opacity: .4; }
+    /* in the block (round 12): W and H are wells, the sizes a choice in a well with its 24 px options on the Studio's plate, the link a 24 px key */
+    .m3r.hy-blk .m3res label { height: var(--hy-ctl-h); padding: 0 8px; background: var(--hy-well); } .m3r.hy-blk .m3res label:hover { background: var(--hy-well-hov); }
+    .m3r.hy-blk .m3res input { height: 100%; }
+    .m3r.hy-blk .m3res .lk { width: var(--hy-ctl-h); height: var(--hy-ctl-h); } .m3r.hy-blk .m3res .lk.on { background: var(--hy-val-on); color: var(--hy-val-ink); box-shadow: none; }
+    .m3r.hy-blk .m3res .seg { --hy-seg-pad: 2px; height: var(--hy-h-m); border-radius: var(--hy-well-r) !important; background: var(--hy-well); }
+    .m3r.hy-blk .m3res .seg > :is(.st, button) { border-radius: var(--hy-well-in-r) !important; } .m3r.hy-blk .m3res .seg > .st { background: var(--hy-val-on); box-shadow: none; }
+    .m3r.hy-blk .m3res .seg > button { height: var(--hy-h-s); }
+    .m3r.hy-blk .dk .dialkit-root .dialkit-labeled-control:has(> .dialkit-segmented) { --hy-seg-pad: 2px; height: var(--hy-h-m); }   /* a choice's options 24 px in its row */
     .m3r .m3hint { padding: 10px 14px 0; } .m3r .real { padding: 8px 14px 0; font-size: 11px; color: var(--dim); line-height: 1.5; word-break: break-all; }
     .m3x { position: fixed; z-index: 60; bottom: var(--b); left: calc(var(--l) + 252px); right: calc(var(--r) + 292px); width: fit-content; margin-inline: auto; }
     .m3x .axes { width: 90px; height: 90px; display: block; touch-action: none; } .m3x .ring { fill: color-mix(in srgb, var(--card) 88%, transparent); stroke: var(--line); transition: fill .15s; } .m3x .axes:hover .ring { fill: var(--raise); }
@@ -403,11 +430,12 @@ export function register(hy) {
   // «3D Studio» first on the bar over one 3D card (owner 2026-10-07), as «Crop» over a picture: what a double click, Enter and the dock's
   // 3D segment do. Not over several cards or in the studio itself (its own bar is there then)
   if (hy.bar) hy.bar(ids => ids.length === 1 && oneCard() === ids[0] && !(E && E.isLive()) ? [{ first: true, icon: CUBE.replace('width="18" height="18"', 'width="15" height="15"'), label: t("3D Studio"), keys: "↵",
-    title: t("Open the 3D studio for this card · Enter or a double click"), fn: () => studio(ids[0]) }] : []);
+    title: t("Open 3D Studio for this card · Enter or a double click"), fn: () => studio(ids[0]) }] : []);
   // the 3D studio is a mode of the board's dock switch (owner 2026-10-06: «3D studio turns on only when we entered a 3D object, otherwise
   // not»): chosen while the editor is open, enabled when one 3D card is selected (a click opens it); leaving is the editor's Done (Enter)
-  if (hy.mode) hy.mode("3d", { label: t("3D"), order: 30, icon: CUBE.replace('width="18" height="18"', 'width="16" height="16"'),
-    title: t("3D studio for the selected 3D card"), hint: t("Select a 3D card or enter one: the 3D studio opens for it"),
+  // color: the chosen segment in 3D Studio's pink, not the board's blue (owner 2026-10-09: «конечно», to giving 3D Studio its colour)
+  if (hy.mode) hy.mode("3d", { label: t("3D"), name: t("3D Studio"), order: 30, icon: CUBE.replace('width="18" height="18"', 'width="16" height="16"'), color: "var(--pink)",
+    title: t("3D Studio for the selected 3D card"), hint: t("Select a 3D card or enter one: 3D Studio opens for it"),
     isOpen: () => !!(E && E.isLive()),
     target: ids => ids.length === 1 && HY.board.items[ids[0]] && HY.board.items[ids[0]].type === TYPE ? ids[0] : null,
     enter: id => studio(id),

@@ -79,7 +79,7 @@ def test_each_tool_does_its_own_job_and_alt_turns_the_camera(tmp_path, engine):
                 page.click(f'.m3t [data-tool="{tool}"]'); o_, c_ = state(page)
                 drag(page, 0.5, 0.5, 100, 20, alt=True)
                 o, c = state(page); assert not same(c["loc"], c_["loc"], 1e-4) and o == o_, (tool, c_["loc"], c["loc"])
-            page.click(".m3t [data-a=save]"); page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
+            page.click("hy-studio-actions [data-a=save]"); page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
             assert not errors, errors
             browser.close()
     finally:

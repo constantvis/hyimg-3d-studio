@@ -99,7 +99,7 @@ def test_cmd_z_takes_back_the_studios_steps(tmp_path, engine):
 
             assert scene.read_bytes() == raw0, "nothing written while the studio is open"
             # «Save»: the card keeps its view, the session is one step on the board, and scene.json (only the card's camera changed) stays
-            page.click(".m3t [data-a=save]"); page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
+            page.click("hy-studio-actions [data-a=save]"); page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
             v = page.evaluate("() => board.items.c.view")
             assert v and abs(v["lens"] - lens1) < 1e-6, v
             assert page.evaluate("() => past.length") == steps0 + 1

@@ -341,7 +341,7 @@ def test_library_folds_while_the_editor_is_open(hy):
         page.wait_for_function("() => document.body.classList.contains('cv-only')", timeout=15000)
         assert page.evaluate("() => localStorage.getItem('view')") == "panel", "the remembered view stays"
         go_on(cv)
-        cv.locator(".m3t [data-a=save]").click()
+        cv.locator("hy-studio-actions [data-a=save]").click()
         page.wait_for_function("() => !document.body.classList.contains('cv-only') && document.body.classList.contains('cv-on')", timeout=15000)
         assert not errors, errors
         browser.close()
@@ -476,7 +476,7 @@ def test_card_frame_changes_like_a_picture_crop(hy):
         w3, h3, lock3 = size(); assert lock3 == "16:9" and abs(w3 / h3 - 16 / 9) < 0.01
         page.click(".m3r .m3res [data-flip]"); go_on(page)
         w4, h4, lock4 = size(); assert lock4 == "9:16" and abs(w4 / h4 - 9 / 16) < 0.01
-        go_on(page); page.click('.m3t [data-tool="smart"]'); page.click(".m3t [data-a=save]")   # closed with «Тянуть» on, as the owner did
+        go_on(page); page.click('.m3t [data-tool="smart"]'); page.click("hy-studio-actions [data-a=save]")   # closed with «Тянуть» on, as the owner did
         page.wait_for_function("() => !document.querySelector('.m3ui')")
         assert page.locator("#dock #tlib").is_visible() and not page.locator("#dock .plgdock").count(), "the dock is the board's again"
         page.wait_for_function(f"() => {{ const i = document.querySelector('.plg[data-id={cid}] img.m3'); return i && i.complete && i.naturalWidth && Math.abs(i.naturalWidth / i.naturalHeight - 9 / 16) < 0.02 }}", timeout=30000)

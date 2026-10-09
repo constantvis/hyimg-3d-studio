@@ -1,7 +1,7 @@
 """The 3D editor in the app's one UI system (owner 2026-10-06, screenshots: «почему они опять несинхронны, одни круглые другие квадратные»,
 «почему-то они не круглые в 3d studio сами эти элементы», «why so much inconsistencies in ui, just make all ui consistant»):
 
-- every control of a row in the inspector (sliders, selects, fields, buttons) has the app's one row radius, in the round and the pro shape;
+- every control of a row in the inspector (sliders, selects, fields, buttons) has one radius, a block's well's 6 px in both shapes (round 12);
 - the tools are circles in the board's dock and drawn in the frame editor's icon family (ui/icons.js);
 - the layer list: the library's search field and rows, sections that fold and are sized by the app's splitter (a double click gives the
   sizes back to the content), a right click with the app's colour row whose colour marks a node and what is under it, kept in scene.json;
@@ -54,8 +54,9 @@ def test_one_radius_round_tools_and_one_icon_family(hy, engine):
         cid = new_card(frame); wait_file(scene_of(lib, frame, cid), lambda d: len(d["objects"]) == 2)
         open_editor(frame, cid)
         frame.wait_for_selector(".m3r .hy-slider", timeout=15000); frame.wait_for_selector(".m3r .dialkit-select-trigger")
-        # round: every row control is a pill (the app's --hy-row-r), the selects as the sliders
-        radii_agree(frame, "999px")
+        # every row control has one radius, the selects as the sliders: a block's well, 6 px in both shapes (round 12 «A · Line», owner
+        # 2026-10-09: «реализуй уже A Line версию на весь интерфейс»; until then the app's --hy-row-r, a pill in the round shape)
+        radii_agree(frame, "6px")
         # the tools in the board's dock are circles: as wide as tall, and a radius of half or more
         for k in ("select", "translate", "rotate", "scale", "smart"):
             b = frame.evaluate(f"() => {{ const b = document.querySelector('#dock .plgdock [data-tool={k}]'), r = b.getBoundingClientRect(); return {{ w: r.width, h: r.height, rad: parseFloat(getComputedStyle(b).borderTopLeftRadius) }}; }}")
@@ -67,9 +68,9 @@ def test_one_radius_round_tools_and_one_icon_family(hy, engine):
             return { k, same: s.innerHTML === ref.innerHTML, line: s.getAttribute('stroke-width') }; }); }""")
         assert all(f["same"] and f["line"] == "1.85" for f in fam), fam
         shot(page, f"3d-round-{engine}")
-        # pro: the same controls, squarer, still one radius (8 px)
+        # pro: the same controls, still one radius (the block's 6 px)
         frame.evaluate("() => { document.documentElement.dataset.shape = 'pro'; }"); frame.wait_for_timeout(200)
-        radii_agree(frame, "8px")
+        radii_agree(frame, "6px")
         b = frame.evaluate("() => getComputedStyle(document.querySelector('#dock .plgdock [data-tool=select]')).borderTopLeftRadius")
         assert b == "8px", b
         shot(page, f"3d-pro-{engine}")
@@ -90,10 +91,10 @@ def test_the_layer_list_sections_colours_and_the_title_plate(hy, engine):
         browser, page, frame, errors = open_board(p, engine, port)
         cid = new_card(frame); scene = scene_of(lib, frame, cid); wait_file(scene, lambda d: len(d["objects"]) == 2)
         open_editor(frame, cid)
-        # the library's search field and rows
+        # the search field is a block's well, 28 px (round 12, Hyimg ui/hy/block.css), the rows the library's
         look = frame.evaluate("""() => { const i = document.querySelector('.m3l .hy-search > input'), cs = getComputedStyle(i), row = document.querySelector('.m3l .row[data-u]'), rs = getComputedStyle(row);
           return { h: i.getBoundingClientRect().height, pad: cs.paddingLeft, rowH: row.getBoundingClientRect().height, rowR: rs.borderTopLeftRadius }; }""")
-        assert look == {"h": 32, "pad": "34px", "rowH": 28, "rowR": "8px"}, look
+        assert look == {"h": 28, "pad": "30px", "rowH": 28, "rowR": "8px"}, look
         frame.click(".m3l .row[data-u]:has-text('Object')"); frame.wait_for_timeout(300)
         sel = frame.evaluate("() => { const r = document.querySelector('.m3l .row.sel'), cs = getComputedStyle(r); return { bg: cs.backgroundColor, ring: cs.boxShadow, raise: getComputedStyle(document.documentElement).getPropertyValue('--raise').trim() }; }")
         assert "rgba(0, 0, 0, 0)" != sel["bg"] and "255, 79" not in sel["ring"], ("the picked row: a grey fill and a hairline, no pink outline", sel)

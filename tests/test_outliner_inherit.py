@@ -71,6 +71,16 @@ def test_chosen_rows_and_inherited_eyes_and_locks(srv, engine):
         frame.click(row("Vase") + " [data-open]"); frame.wait_for_timeout(500)
         parts = frame.evaluate("() => { const rows = [...document.querySelectorAll('.m3l .ms[data-s=objects] .row[data-u]')]; const i = rows.findIndex(r => r.querySelector('.nm').textContent.startsWith('Vase')); return rows.slice(i + 1).filter(r => r.querySelector('.g')).map(r => r.dataset.u); }")
         assert len(parts) >= 2, parts
+        # a group inside the model's file (a glTF node holding parts) wears the Board's group icon, Figma's dashed square, no longer a
+        # folder (owner 2026-10-09: «let's make same as in figma and apply it»)
+        opener = ".m3l .ms[data-s=objects] .row[data-k='shell/phone.glb'] [data-open]"
+        frame.click(opener); frame.wait_for_timeout(500)
+        ic = frame.evaluate("""() => { const svg = n => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.innerHTML = HY_TOOL_IC[n]; return s.innerHTML; };
+          const rows = [...document.querySelectorAll('.m3l .ms[data-s=objects] .row[data-u]')].map(r => r.querySelector(':scope > svg').innerHTML);
+          return { group: rows.filter(x => x === svg('group')).length, folder: rows.filter(x => x === svg('folder')).length, rows: rows.length }; }""")
+        assert ic["group"] >= 1 and ic["folder"] == 0, ic
+        shot(page, f"inherit-3d-group-icon-{engine}")
+        frame.click(opener); frame.wait_for_timeout(500)
         a, b = parts[0], parts[1]
         press(page, frame, f".m3l .row[data-u='{a}'] [data-eye]")
         d = wait_file(path, lambda d: any(v.get("hidden") for v in (d["objects"][0].get("layers") or {}).values()))

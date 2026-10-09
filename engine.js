@@ -48,6 +48,9 @@ const LIGHT_W = { area: 20, spot: 30, point: 10, sun: 3 };
 const LIGHT_NAMES = { area: "Area light", spot: "Spotlight", point: "Point light", sun: "Sun" };   // through t()
 const SLOW_MS = 120, STOP_MS = 300, POSTER_SLOW_MS = 1200;   // a frame of the editor: lower the quality, then stop and ask; a poster: refresh rarely
 // the frame of a card: free, or locked to a ratio (width:height); the same choice as the bar the canvas shows over the card
+// the studio's keys in the Hint bar (Hyimg ui/hy/keyhint.js, place "top"): the camera (tools.js), ⌘↵ saves and leaves (onKey below)
+// (owner 2026-10-09 on round 12's «⌥ / Space Orbit ⌘↵ Save»: «вот это отлично, забираю»)
+const KEYHINT = [{ id: "orbit", keys: ["alt", "space"], t: "Orbit" }, { id: "save", keys: ["mod+enter"], t: "Save" }];
 const RATIOS = ["1:1", "4:5", "5:4", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9"];   // with t("Free") first in the list
 
 let HY, renderer;
@@ -482,7 +485,7 @@ function stopLive(keep = true) {
   if (L.themeObs) L.themeObs.disconnect();
   if (L.kit) L.kit.destroy(); if (L.dk) L.dk.destroy(); if (L.blender) L.blender.dispose(); if (L.look) L.look.dispose();
   L.orbit.dispose(); L.tc.detach(); L.view.scene.remove(L.tc.getHelper()); L.tc.dispose();
-  L.view.helpers.clear(); if (HY.dock) HY.dock(null); L.ui.root.remove(); L.unplace(); L.el.querySelectorAll(".m3pause").forEach(x => x.remove()); renderer.domElement.remove(); L.el.classList.remove("plg-live"); document.body.classList.remove("m3edit");
+  if (L.kh) L.kh.hide(); L.view.helpers.clear(); if (HY.dock) HY.dock(null); L.ui.root.remove(); L.unplace(); L.el.querySelectorAll(".m3pause").forEach(x => x.remove()); renderer.domElement.remove(); L.el.classList.remove("plg-live"); document.body.classList.remove("m3edit");
   if (HY.full) HY.full(false);
   if (!keep) return cancelled(L, lost);
   // the scene's versions: the file at the opening and the one written now, named by their rev; every card of the scene says which it
@@ -669,7 +672,7 @@ function resetState(L) {
   if (live !== L || !L.ui) return;
   const sc = scopeOf(L), paneChanged = !!(sc && sc.was) && norm(sc.now()) !== norm(sc.was);
   const pb = [...L.ui.root.querySelectorAll(".dk button")].find(b => b.textContent.trim() === K.reset);
-  if (pb) { pb.classList.add("hy-reset"); pb.disabled = !paneChanged; pb.title = paneChanged ? t("Back to how it was when the editor opened") : t("Nothing changed"); }
+  if (pb) { pb.classList.add("hy-reset"); pb.disabled = !paneChanged; pb.title = paneChanged ? t("Back to how it was when the studio opened") : t("Nothing changed"); }
   if (L.syncRes) L.syncRes();   // the output size follows the card (an undo, an edge dragged on the board)
   // each action button says what it does (owner 2026-10-07: «Delete» read «Nothing changed»; that is Reset's reason alone)
   const del = { camera: "Delete camera", light: "Delete light", object: "Delete object" }[L.paneKind];
@@ -738,8 +741,9 @@ const shownPath = path => path.split("/").map(seg => { const m = seg.endsWith("~
   return (b === "Чехол" ? t("Case") : b === "узел" ? t("node") : b) + (m ? "~" + t("mirror") : ""); });
 // one icon family with the image studio and the board (owner 2026-10-06: «почему-то они не круглые в 3d studio», the tools drawn in another
 // hand; 2026-10-07: «одно значение, одна иконка»): every icon here is Hyimg's (ui/icons.js hyIcon), the studio draws none of its own. The
-// studio's names for them, each to its registry name: a scene's camera wears the camera, Snapshot the photo camera, an added box «primBox»
-const FAMILY = { translate: "move", smart: "pull", off: "eyeoff", unlock: "lockOpen", group: "folder", file: "doc", box: "primBox", shot: "snapshot" };   // hy-icon-names
+// studio's names for them, each to its registry name: a scene's camera wears the camera, Snapshot the photo camera, an added box «primBox»;
+// a group is the Board's group, Figma's dashed square (owner 2026-10-09: «let's make same as in figma and apply it»), no longer a folder
+const FAMILY = { translate: "move", smart: "pull", off: "eyeoff", unlock: "lockOpen", file: "doc", box: "primBox", shot: "snapshot" };   // hy-icon-names
 const ico = (k, cls = "ic") => hyIcon(FAMILY[k] || k, 0, 1.85, cls);
 const hasIco = k => !!(window.HY_TOOL_IC && HY_TOOL_IC[FAMILY[k] || k]);
 // the library's own folder search field (review/v2.html #ffilt in ui/look.css .hy-search: its magnifier, height, radius, padding, ground)
@@ -773,17 +777,20 @@ function buildUI(L) {
       <span class="sep"></span>${[["select", "Select", "V"], ["translate", "Move", "G"], ["rotate", "Rotate", "R"], ["scale", "Scale", "S"], ["smart", "Pull: by a point, as on a string in thick gel", "T"]].map(([k, w, key]) => `<button data-tool="${k}" data-key="${key}" title="${t(w)} · ${key}" aria-label="${t(w)}">${ico(k)}<kbd>${key}</kbd></button>`).join("")}
       <button class="m3ic" data-a="undo" title="${t("Undo · ⌘Z")}" aria-label="${t("Undo")}" disabled>${hyIcon("undo", 0, 2)}</button>
       <button class="m3ic" data-a="redo" title="${t("Redo · ⇧⌘Z")}" aria-label="${t("Redo")}" disabled>${hyIcon("redo", 0, 2)}</button>
-      <button class="m3reset" data-a="reset" title="${t("Reset all: the scene and the card as they were when the editor opened")}" aria-label="${t("Reset all")}" disabled>${hyIcon("reset", 0, 2)}</button><span class="sep"></span>
-      <button class="wide" data-a="shot" title="${t("View, masks and depth beside the card · P")}">${ico("shot")}${t("Snapshot")}</button>
-      <button class="wide" data-a="cancel" title="${t("Close without saving · Esc")}">${t("Cancel")}</button>
-      <button class="wide pri" data-a="save" title="${t("Save the scene and the card's view and close · ⌘↵")}">${hyIcon("check", 0, 2.4)}${t("Save")}</button></div>
+      <button class="m3reset" data-a="reset" title="${t("Reset all: the scene and the card as they were when the studio opened")}" aria-label="${t("Reset all")}" disabled>${hyIcon("reset", 0, 2)}</button><span class="sep"></span>
+      <button class="wide" data-a="shot" title="${t("View, masks and depth beside the card · P")}">${ico("shot")}${t("Snapshot")}</button></div>
     <div class="m3title hy-plate" data-hyui><b>${t("3D scene")}</b><code class="fp"></code></div>
-    <div class="m3p m3l" data-hyui><div class="lhd"><label class="hy-search">${LIB_FIND}<input data-q type="search" placeholder="${t("Search layers")}" aria-label="${t("Search layers")}" autocomplete="off" spellcheck="false"></label></div>
+    <div class="m3p m3l hy-blk" data-hyui><div class="lhd"><label class="hy-search">${LIB_FIND}<input data-q type="search" placeholder="${t("Search layers")}" aria-label="${t("Search layers")}" autocomplete="off" spellcheck="false"></label></div>
       <div class="opts"><label title="${t("Show the files' wrappers without geometry")}"><input type="checkbox" data-raw> ${t("all nodes")}</label></div>
-      <div class="tr">${SECS.map((k, i) => `${i ? `<div class="msp" data-before="${k}"></div>` : ""}<section class="ms" data-s="${k}" hidden><div class="msh" role="button" aria-expanded="true" title="${t("Fold or unfold")}"><span class="mtg">${CHEV()}</span><span class="mst">${t(SEC_NAME[k])}</span><span class="cnt"></span></div><div class="msb"><div class="msi"></div></div></section>`).join("")}<div class="none" hidden>${t("Nothing found")}</div></div></div>
-    <div class="m3p m3r" data-hyui><div class="m3tabs" role="tablist"><button class="m3tab on" data-tab="props" role="tab" aria-selected="true">${t("Properties")}</button><button class="m3tab" data-tab="hist" role="tab" aria-selected="false">${t("History")}</button></div><div class="ih"></div><div class="inf"></div><div class="dk"></div><div class="m3hist" role="list" hidden></div></div>
+      <div class="tr">${SECS.map((k, i) => `${i ? `<div class="msp" data-before="${k}"></div>` : ""}<section class="ms" data-s="${k}" hidden><div class="msh hy-sh" role="button" aria-expanded="true" title="${t("Fold or unfold")}"><span class="mtg hy-sh-cv">${CHEV()}</span><span class="mst">${t(SEC_NAME[k])}</span><span class="cnt hy-sh-n"></span></div><div class="msb"><div class="msi"></div></div></section>`).join("")}<div class="none" hidden>${t("Nothing found")}</div></div></div>
+    <div class="m3p m3r hy-blk" data-hyui><div class="m3tabs hy-bh" role="tablist"><button class="m3tab hy-bh-tab on" data-tab="props" role="tab" aria-selected="true">${ico("properties", "")}${t("Properties")}</button><button class="m3tab hy-bh-tab" data-tab="hist" role="tab" aria-selected="false">${ico("history", "")}${t("History")}</button></div><div class="ih"></div><div class="inf"></div><div class="dk"></div><div class="m3hist" role="list" hidden></div></div>
     <div class="m3x" data-hyui><svg class="axes" viewBox="0 0 90 90" aria-label="${t("Axes: drag turns the camera, a click on an axis puts the camera along it")}"></svg></div>`;
   document.body.appendChild(root);
+  // Cancel and Save stand top right, Hyimg's one place for a Studio's session actions (ui/hy/actions.js; owner 2026-10-09: «кнопки Done у
+  // нас всегда стандартизированы справа вверху, а не внизу»); a click reaches onBar below by its data-a, the keys stay Esc and ⌘↵
+  root.appendChild(Object.assign(document.createElement("hy-studio-actions"), { actions: [
+    { id: "cancel", label: t("Cancel"), title: t("Close without saving · Esc"), key: "Esc" },
+    { id: "save", label: t("Save"), title: t("Save the scene and the card's view and close · ⌘↵"), key: "⌘↵", primary: true }] }));
   const q = s => root.querySelector(s), doc = () => L.e.doc;
   q(".m3title .fp").textContent = L.path; q(".m3title").title = L.path;
   // the scene's title is a plate in the top band (owner 2026-10-06: «3D scene 3d/scenes/…» on top, as a group's title when you are zoomed
@@ -1323,6 +1330,8 @@ function buildUI(L) {
     bar.classList.remove("m3p"); root.appendChild(menu); bar.addEventListener("click", onBar); bar.addEventListener("pointerdown", e => e.stopPropagation());
     HY.dock(bar);
   }
+  // the camera's keys and how to leave, top centre as the studio opens, gone once one is used (the Hint bar, Hyimg's ui/hy/keyhint.js)
+  if (window.hyKeyHint) L.kh = window.hyKeyHint.show(document.getElementById("dock") || L.el, "3d", KEYHINT, { place: "top" });   // until learned
 
   // -- the axes: Blender's colours (x red, y green, z blue up). Drag turns the card's camera around what it looks at, a click on an
   // axis flies it there in 0.4 s (owner 2026-10-03: the circle must turn and the jump be smooth); angles go on a sphere, so a top view

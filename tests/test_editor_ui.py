@@ -194,7 +194,7 @@ def test_the_panel_glides_with_the_library_and_the_library_opens_half_while_the_
         page.wait_for_timeout(1500)
         assert abs(frame.evaluate("() => document.querySelector('.m3ui .m3l').getBoundingClientRect().left") - x_closed) < 2
         # after «Done» the remembered full width is back
-        frame.click("#dock [data-a=save]"); page.wait_for_timeout(1200)
+        frame.click("hy-studio-actions [data-a=save]"); page.wait_for_timeout(1200)
         assert page.evaluate("() => document.body.classList.contains('lwide')"), "the full width comes back with the library"
         assert not errors, errors
         browser.close()

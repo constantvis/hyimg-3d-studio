@@ -67,7 +67,7 @@ def test_cancel_leaves_the_scene_the_card_and_the_board(tmp_path, engine):
             wait_doc(page, lambda d: len(d["cameras"]) == 2 and d["lights"][0].get("hidden"))
             assert scene.read_bytes() == raw0, "nothing written while the studio is open"
             # changes: Cancel asks first, the image studio's dialog over everything; a newer note does not cover it, Esc keeps the studio
-            page.click(".m3t [data-a=cancel]"); page.wait_for_selector("#hyConfirm.on", timeout=5000)
+            page.click("hy-studio-actions [data-a=cancel]"); page.wait_for_selector("#hyConfirm.on", timeout=5000)
             assert page.locator("#hyConfirm .hc-t").inner_text().strip() == "Закрыть без сохранения?"
             page.evaluate("() => { HY.toast('Новая заметка поверх', 'info'); HY.toast('Еще одна', 'info'); }"); page.wait_for_timeout(400)
             b = page.locator("#hyConfirm button.ok").bounding_box()
@@ -83,7 +83,7 @@ def test_cancel_leaves_the_scene_the_card_and_the_board(tmp_path, engine):
             assert page.evaluate("() => [JSON.stringify(board.items.c), past.length]") == [item0, steps0]
             d = page.evaluate(DOC); assert len(d["cameras"]) == 1 and not d["lights"][0].get("hidden"), "the scene in memory as it was"
             # nothing changed: Cancel closes at once, no question
-            studio(page); page.click(".m3t [data-a=cancel]")
+            studio(page); page.click("hy-studio-actions [data-a=cancel]")
             page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
             assert scene.read_bytes() == raw0 and not errors, errors
             browser.close()
@@ -101,7 +101,7 @@ def test_save_keeps_the_view_and_the_board_brings_the_scene_back(tmp_path, engin
             browser = launch(p, engine); page, errors = open_board(browser, port)
             view0, steps0 = page.evaluate("() => [board.items.c.view, past.length]")
             studio(page); eye(page, "Ключевой"); orbit(page)
-            page.click(".m3t [data-a=save]"); page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
+            page.click("hy-studio-actions [data-a=save]"); page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
             page.wait_for_timeout(800)
             d = json.loads(scene.read_text()); rev1 = d["rev"]
             assert d["lights"][0].get("hidden") and rev1 > rev0, "what the cards share is written"
@@ -156,7 +156,7 @@ def test_history_lists_the_steps_and_goes_there(tmp_path, engine):
             page.click(".m3r [data-tab=props]"); eye(page, "Ключевой"); page.click(".m3r [data-tab=hist]")
             r = page.evaluate(rows); assert len(r) == 3 and r[2][0] == "Свет · Ключевой скрыт" and r[2][1], "a new edit drops the later steps"
             assert page.locator(".m3r .dk").is_hidden() and not errors, errors
-            page.click(".m3t [data-a=save]"); page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
+            page.click("hy-studio-actions [data-a=save]"); page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
             browser.close()
     finally:
         stop()
@@ -207,7 +207,7 @@ def test_original_camera_brings_back_the_pictures_view(tmp_path, engine):
             assert abs(d["cameras"][0]["lens"] - 120) < 1e-6
             page.click(".m3r [data-tab=hist]")
             page.wait_for_function("() => (document.querySelector('.m3hist .hrow.cur') || {}).textContent === 'Камера: как на картинке'", timeout=5000)
-            page.click(".m3t [data-a=save]"); page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
+            page.click("hy-studio-actions [data-a=save]"); page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
             assert math.dist(page.evaluate("() => board.items.c.view.loc"), CAM0["loc"]) < 1e-4
             assert not errors, errors
             browser.close()
@@ -235,13 +235,13 @@ def test_a_board_version_brings_the_scene_and_the_cards_back(tmp_path, engine):
             browser = launch(p, engine); page, errors = open_board(browser, port)
             # session A: the light hidden (shared by the cards), the camera turned; saved: the scene's rev A, the card's view A
             studio(page); eye(page, "Ключевой"); orbit(page)
-            page.click(".m3t [data-a=save]"); page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
+            page.click("hy-studio-actions [data-a=save]"); page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
             rev_a, view_a = page.evaluate("() => [board.items.c.sceneRev, board.items.c.view]")
             saved_rev(rev_a); assert json.loads(scene.read_text())["lights"][0].get("hidden")
             ver = post({"name": "main", "action": "save", "label": "A"})   # the owner's version of the board, as «Save version» does
             # session B: the light shown again, the camera turned again
             studio(page); eye(page, "Ключевой"); orbit(page)
-            page.click(".m3t [data-a=save]"); page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
+            page.click("hy-studio-actions [data-a=save]"); page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
             rev_b, view_b = page.evaluate("() => [board.items.c.sceneRev, board.items.c.view]")
             saved_rev(rev_b); assert rev_b > rev_a and view_b != view_a and not json.loads(scene.read_text())["lights"][0].get("hidden")
             # the board's version A: the card's view and its scene come back
@@ -279,7 +279,7 @@ def test_enter_takes_a_number_and_only_cmd_enter_saves(tmp_path, engine):
             assert page.evaluate("() => !!document.querySelector('.plg-live')"), "Enter in a number field takes the value, it does not save"
             page.locator("canvas.m3live").click(position={"x": 20, "y": 20}); page.keyboard.press("Enter"); page.wait_for_timeout(600)
             assert page.evaluate("() => !!document.querySelector('.plg-live')"), "a plain Enter never saves"
-            assert "⌘↵" in page.locator(".m3t [data-a=save]").get_attribute("title")
+            assert "⌘↵" in page.locator("hy-studio-actions [data-a=save]").get_attribute("title")
             page.keyboard.press("Meta+Enter")
             page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
             assert abs(page.evaluate("() => board.items.c.view.lens") - 50) < 1e-6, "⌘↵ saved the card's view"

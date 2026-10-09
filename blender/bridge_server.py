@@ -54,7 +54,7 @@ def arg(name, default=None):
 
 TOKEN = os.environ.pop("HYIMG_BRIDGE_TOKEN", "")
 studio_looks.BASE_ENV.pop("HYIMG_BRIDGE_TOKEN", None)
-CACHE = arg("--cache") or os.path.join(os.path.expanduser("~/Library/Caches/Hyimg"), "blender")
+CACHE = arg("--cache") or os.path.join(os.environ.get("HYIMG_CACHE_ROOT") or os.path.expanduser("~/Library/Caches/Hyimg"), "blender")   # as bridge.py
 IDLE = float(arg("--idle", "600"))
 PARENT = int(arg("--parent", "0") or 0)
 INBOX = queue.Queue()

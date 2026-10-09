@@ -162,7 +162,7 @@ def test_materials_variants_light_and_ab(hy, engine):
         if SHOTS: page.screenshot(path=os.path.join(SHOTS, f"lm-light-{engine}.png"))
         # «Cancel»: nothing of it stays
         raw = scene.read_text()
-        frame.click("#dock [data-a=cancel]") if frame.locator("#dock [data-a=cancel]").count() else frame.click(".m3t [data-a=cancel]")
+        frame.click("hy-studio-actions [data-a=cancel]")
         frame.wait_for_selector("#hyConfirm.on", timeout=5000); frame.wait_for_timeout(300)
         frame.click("#hyConfirm button.ok"); frame.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
         frame.wait_for_timeout(600)

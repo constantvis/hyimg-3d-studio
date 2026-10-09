@@ -7,13 +7,13 @@ A plugin for [Hyimg](https://github.com/constantvis/Hyimg), the local Figma + Li
 ## What it does
 
 - A scene is a plain `scene.json` in Blender's terms: metres, z up, lights in watts, a camera with a focal length and sensor. It lives in the project folder at `3d/scenes/<name>/`.
-- Double click a card to edit it: a layer tree with search, transform tools, lights, cameras and materials, in the spirit of Spline. Several cards can show the same scene from different cameras.
+- Double click a card to open it in 3D Studio: a layer tree with search, transform tools, lights, cameras and materials, in the spirit of Spline. Several cards can show the same scene from different cameras.
 - Snapshot renders the view, object masks and depth to `3d/shots/`, each with a json of the scene, camera and mask legend, ready to feed an image model.
 - Models come from the project's `3d/models/<id>/model.json`; a new scene starts with a neutral stand-in.
 - A new card asks for a file: Open file… (glb, gltf, obj, stl, fbx, and STEP or IGES, which FreeCAD converts once in the background), the media library with its 3D filter, or one of the recent files. Previews turn under the pointer.
 - Heavy scenes are guarded: the card weighs a scene before loading it.
 
-![The 3D editor: scene tree and object properties](docs/images/3d-editor.webp)
+![3D Studio: scene tree and object properties](docs/images/3d-editor.webp)
 
 ## Install
 
@@ -39,7 +39,7 @@ Objects carry `hyimg_id`, `hyimg_src`, `hyimg_ai` and `hyimg_mask` properties in
 ## Blender in the card
 
 A scene made from a Blender studio's renders (`tools/studio_angles.py`: one camera per picture, the studio's geometry once) gets a
-«three.js · EEVEE · Cycles» switch in its editor. On EEVEE or Cycles the card shows Blender's frame of its camera, rendered in steps a
+«three.js · EEVEE · Cycles» switch in 3D Studio. On EEVEE or Cycles the card shows Blender's frame of its camera, rendered in steps a
 moment after the camera stops; «OK» renders the picture's final frame (its size, samples, exposure) and saves it beside the card with a
 json that can reproduce it. Blender runs once per project behind Hyimg's server (`bridge.py`, `blender/bridge_server.py`) and builds the
 studio's current materials by running the studio's own script up to its render, read only (`blender/studio_looks.py`). The current

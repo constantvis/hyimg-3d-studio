@@ -1,5 +1,5 @@
 """«3D Studio» on the bar over a 3D card (owner 2026-10-07, a screenshot of the bar with only the Raw Editor wheel and the opacity): the
-first button, the cube and «3D-студия» with its key ↵ and a line after it, as «Crop» over a picture; a click opens the studio for that
+first button, the cube and «3D Studio» with its key ↵ and a line after it, as «Crop» over a picture; a click opens the studio for that
 card (the dock's 3D segment and a double click do the same), Enter too; over two cards there is none. Chromium and WebKit, the board in
 Russian.
 
@@ -34,8 +34,8 @@ def test_the_bar_over_a_3d_card_opens_its_studio(board_dir, engine):
             page.wait_for_function("() => [...document.querySelectorAll('.plg[data-type=model3d] img.m3')].filter(i => i.complete && i.naturalWidth).length === 2", timeout=60000)
             b = page.locator('#items [data-id="m1"]').bounding_box(); page.mouse.click(b["x"] + 40, b["y"] + 40); page.wait_for_timeout(300)
             bar = page.evaluate(BAR)
-            assert bar and bar[0] == "plg:3D-студия↵" and bar[1] == "sep", bar   # first, its key cap, a line after it
-            assert page.evaluate("() => document.querySelector('#handles .tidy button').title") == "Открыть 3D-студию для этой карточки · Enter или двойной клик"
+            assert bar and bar[0] == "plg:3D Studio↵" and bar[1] == "sep", bar   # first, its key cap, a line after it
+            assert page.evaluate("() => document.querySelector('#handles .tidy button').title") == "Открыть 3D Studio для этой карточки · Enter или двойной клик"
             if SHOTS:
                 Path(SHOTS).mkdir(parents=True, exist_ok=True)
                 t = page.locator("#handles .tidy").bounding_box()
@@ -45,13 +45,13 @@ def test_the_bar_over_a_3d_card_opens_its_studio(board_dir, engine):
             # over two cards: none
             b = page.locator('#items [data-id="m2"]').bounding_box()
             page.keyboard.down("Shift"); page.mouse.click(b["x"] + 40, b["y"] + 40); page.keyboard.up("Shift"); page.wait_for_timeout(200)
-            assert "plg:3D-студия↵" not in (page.evaluate(BAR) or []), page.evaluate(BAR)
+            assert "plg:3D Studio↵" not in (page.evaluate(BAR) or []), page.evaluate(BAR)
             # a click on the button opens the studio for that card, as the dock's 3D segment does
             page.mouse.click(1400, 900); page.mouse.click(b["x"] + 40, b["y"] + 40); page.wait_for_timeout(200)
             assert page.evaluate("() => [...sel]") == ["m2"]
             page.locator("#handles .tidy button[data-plgbar]").first.click()
             page.wait_for_function("() => document.querySelector('.plg-live') && document.querySelector('.plg-live').dataset.id === 'm2' && MODES.open === '3d'", timeout=60000)
-            assert "plg:3D-студия↵" not in (page.evaluate(BAR) or []), "not on the studio's own bar"
+            assert "plg:3D Studio↵" not in (page.evaluate(BAR) or []), "not on the studio's own bar"
             page.keyboard.press("Meta+Enter")   # the studio's Save
             page.wait_for_function("() => !document.querySelector('.plg-live') && MODES.open === 'board'", timeout=20000)
             # Enter on a selected 3D card opens it too

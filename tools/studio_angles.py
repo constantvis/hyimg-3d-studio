@@ -41,7 +41,7 @@ LIB = os.path.abspath(opt("--library"))
 SCENE = opt("--scene")
 COLOUR = opt("--colour")
 OUT = opt("--out", "3d/renders")
-WORK = opt("--work", os.path.join(os.path.expanduser("~/Library/Caches/Hyimg"), "blender", "angles"))
+WORK = opt("--work", os.path.join(os.environ.get("HYIMG_CACHE_ROOT") or os.path.expanduser("~/Library/Caches/Hyimg"), "blender", "angles"))
 PICS = ARGS
 os.environ["HYIMG_LIBRARY_ROOT"] = LIB
 

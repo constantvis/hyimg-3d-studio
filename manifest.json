@@ -2,6 +2,8 @@
  "title": "3D objects",
  "title_ru": "3D-объекты",
  "version": "0.1.0",
+ "description": "A 3D scene as a card: turn it, light it, snap it into a picture",
+ "description_ru": "3D-сцена карточкой: вращать, ставить свет, снимать в картинку",
  "canvas": "canvas.js",
  "about": "A 3D scene as a card on the Hyimg canvas: turn it, lens, light, the project's models from 3d/models, a snapshot into an image with the camera's json; a 3D file from a chooser or the media library, with turntable previews",
  "server": "models.py",

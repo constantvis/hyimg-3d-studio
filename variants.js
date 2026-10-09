@@ -193,7 +193,7 @@ export function attachLook(L, ctx) {
     });
     requestAnimationFrame(() => {
       const b = [...L.ui.root.querySelectorAll(".dk .dialkit-button")].find(x => x.textContent.trim() === words.reset); if (!b) return;
-      const on = resetDiff(); b.classList.add("hy-reset"); b.disabled = !on; b.title = on ? t("Back to how it was when the editor opened") : t("Nothing changed");
+      const on = resetDiff(); b.classList.add("hy-reset"); b.disabled = !on; b.title = on ? t("Back to how it was when the studio opened") : t("Nothing changed");
     });
   };
 

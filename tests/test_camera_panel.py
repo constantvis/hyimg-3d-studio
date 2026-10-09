@@ -86,16 +86,17 @@ def test_the_active_camera_one_camera_block_and_the_actions_say_what_they_do(tmp
             frame.click(".m3l .row[data-cam=c03]"); frame.wait_for_timeout(600)
             rows = frame.evaluate(ROWS)
             assert active(rows) == ["c00"] and [r["id"] for r in rows if r["sel"]] == ["c03"], rows
-            # the selected row is the app's selected row, the image editor's selected layer: a blue fill and a blue line, still so under the pointer
-            # (owner 2026-10-07: «выбранный объект вообще незаметен, должно быть, как вот здесь в эдиторе фото»)
+            # the selected row is the app's selected row, the image editor's selected layer: a fill and a line, still so under the pointer
+            # (owner 2026-10-07: «выбранный объект вообще незаметен, должно быть, как вот здесь в эдиторе фото»), in 3D Studio's pink
+            # since 2026-10-09 (owner: «конечно», to giving the Studio its colour; tests/test_studio_colour.py)
             SELBG = "() => { const r = document.querySelector('.m3l .row.sel'), cs = getComputedStyle(r); return [cs.backgroundColor, cs.boxShadow]; }"
             bg, ring = frame.evaluate(SELBG)
             import re as _re
             def rgba(x):   # rgb(…) or color(srgb …) as 0–255 and an alpha
                 c = _re.search(r"(rgba?|color)\(([^)]*)\)", x); v = [float(n) for n in _re.findall(r"[\d.]+", c.group(2).replace("srgb", ""))]
                 k = 255 if c.group(1) == "color" else 1; return [v[0] * k, v[1] * k, v[2] * k, v[3] if len(v) > 3 else 1]
-            f = rgba(bg); assert f[2] > f[0] + 60 and f[3] > 0.05, ("a blue fill", bg)
-            l = rgba(ring); assert "inset" in ring and l[2] > l[0] + 60 and l[3] > 0.3, ("a blue line", ring)
+            f = rgba(bg); assert f[0] > f[1] + 100 and f[0] > f[2] + 60 and f[3] > 0.05, ("a pink fill", bg)
+            l = rgba(ring); assert "inset" in ring and l[0] > l[1] + 100 and l[0] > l[2] + 60 and l[3] > 0.3, ("a pink line", ring)
             frame.hover(".m3l .row[data-cam=c03]"); frame.wait_for_timeout(250)
             assert frame.evaluate(SELBG)[0] == bg, "a selected row under the pointer stays selected"
             head = frame.evaluate("() => document.querySelector('.m3r .ih').textContent")
