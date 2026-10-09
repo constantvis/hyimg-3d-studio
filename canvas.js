@@ -120,7 +120,7 @@ function poster(el, it, id, doc, force) {
 }
 // The card is a picture for the board's looks (owner 2026-10-06: «why can't I make a 3D object more transparent, like a picture ... and lay
 // a colour grade over it? In the end it is a picture, even when it is rendered»): the board fades the whole card, and the colour grade
-// (Hyimg-frames) is laid over the picture the card shows now, whatever made it, and again each time it changes («if the render finished,
+// (hyimg-image-studio) is laid over the picture the card shows now, whatever made it, and again each time it changes («if the render finished,
 // my grade is always laid over it»). surface(): in the editor Blender's frame while it is shown, else the live three.js view; at rest
 // the still (three.js or the last Blender frame). Each new picture tells the board (HY.drawn): a still or a Blender frame loaded, the
 // live view drawn (engine.js), another element now showing (Blender's frame shown or hidden, the editor opened or closed)
@@ -232,7 +232,7 @@ export function register(hy) {
     :root[data-ui="studio"] .m3ui, :root[data-ui="studio"][data-theme="dark"] .m3ui { --pink-ink: #1c0a13; --card: #1b1c1f; --raise: #25262a; --line: #2c2d32; --guide: #34353b; --ink: #ececef; --sub: #9a9ba3; --dim: #64656d; }
     :root[data-ui="studio"][data-theme="light"] .m3ui { --pink-ink: #fff; --card: #ffffff; --raise: #f0f0f2; --line: #e3e3e7; --guide: #d9d9de; --ink: #1b1c1f; --sub: #6b6c73; --dim: #9a9ba3; }
     /* 3D Studio wears its colour, its pink (--pink), in both looks (owner 2026-10-09, «конечно» to «3D Studio и Dev Studio пока остаются
-       синими. Дать им их цвета?»; Image Studio's purple is the precedent, hyimg-frames 6e04f1a): every chosen, checked or primary thing of
+       синими. Дать им их цвета?»; Image Studio's purple is the precedent, hyimg-image-studio 6e04f1a): every chosen, checked or primary thing of
        the studio (the picked row, a checked box, a chosen option, a value's fill, the tool in hand and Save in the dock) and the 3D segment
        of the dock's switch (HY.mode color). It is on the board's root because the dock reads it; blue stays the board's selection */
     :root { --pink: #ff4fa3; } :root[data-theme="light"] { --pink: #e5307f; }

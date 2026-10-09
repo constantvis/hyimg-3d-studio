@@ -1,5 +1,5 @@
 """3D Studio wears its colour (owner 2026-10-09, «конечно» to «3D Studio и Dev Studio пока остаются синими. Дать им их цвета?»), as Image
-Studio wears its purple (hyimg-frames 6e04f1a, tests/test_studio_dock.py there): inside the studio the chosen 3D segment of the dock's
+Studio wears its purple (hyimg-image-studio 6e04f1a, tests/test_studio_dock.py there): inside the studio the chosen 3D segment of the dock's
 switch, a checked box, the picked layer row, the tool in hand and the primary Save are in 3D Studio's pink (--pink), Save with white words,
 Cancel as it was; back on the board the Board segment is the selection's blue again. Chromium, dark, the classic look (where the
 selection is blue).

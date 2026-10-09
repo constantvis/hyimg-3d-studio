@@ -599,11 +599,14 @@ def test_three_cards_get_real_stills_and_one_link(tmp_path):
                 assert abs(im.width / im.height - it["w"] / it["h"]) < 0.02, f"{f.name} holds another card's picture: {im.size}"
             page.evaluate("() => { sel = new Set(['m1', 'm2', 'm3']); render(); }")
             b = page.locator(".plg[data-id=m2]").bounding_box()
-            page.mouse.click(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2, button="right")
-            assert page.locator("#ctx [data-act=link]").inner_text() == "Копировать ссылку на выделенное (3)"
-            page.keyboard.press("Escape"); page.evaluate("() => { sel = new Set(); render(); }")
-            page.mouse.click(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2, button="right")
-            assert page.locator("#ctx [data-act=link]").inner_text() == "Копировать ссылку на 3D-сцену"
+            # the link is in «Копировать как ›» since hyimg 58e3147, what it links to in its tooltip
+            def link_tip():
+                page.mouse.click(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2, button="right")
+                page.locator("#ctx [data-sub=copyas]").hover()
+                return page.locator("#ctx .hy-sub [data-act=link]").get_attribute("title")
+            assert link_tip() == "Копировать ссылку на выделенное (3)"
+            page.keyboard.press("Escape"); page.keyboard.press("Escape"); page.evaluate("() => { sel = new Set(); render(); }")
+            assert link_tip() == "Копировать ссылку на 3D-сцену"
             assert not errors, errors
             browser.close()
     finally:

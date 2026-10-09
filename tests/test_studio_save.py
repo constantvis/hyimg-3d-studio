@@ -253,6 +253,9 @@ def test_a_board_version_brings_the_scene_and_the_cards_back(tmp_path, engine):
                 if d.get("from_rev") == rev_a: break
                 time.sleep(0.1)
             assert d.get("from_rev") == rev_a and d["lights"][0].get("hidden") and d["rev"] > rev_b, d
+            for _ in range(50):   # the scene in memory reads the restored file after it is written, a moment later
+                if page.evaluate(DOC)["lights"][0].get("hidden"): break
+                time.sleep(0.1)
             assert page.evaluate(DOC)["lights"][0].get("hidden"), "the scene in memory follows"
             page.wait_for_function("() => document.querySelector('#hyToasts') && document.querySelector('#hyToasts').textContent.includes('снова такая')",
                                    timeout=10000)

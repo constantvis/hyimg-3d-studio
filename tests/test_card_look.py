@@ -11,7 +11,7 @@ this one, in Chromium and WebKit:
 - «Render» in the Blender plate puts the final frame on the board as a picture that carries the card's grade as its own property (the
   file is never graded). The Blender bridge is answered by the test (page.route), no Blender is needed.
 
-  HYIMG_REPO=<Hyimg checkout> HYIMG_FRAMES=<hyimg-frames checkout> python3 -m pytest tests/test_card_look.py
+  HYIMG_REPO=<Hyimg checkout> HYIMG_FRAMES=<hyimg-image-studio checkout> python3 -m pytest tests/test_card_look.py
   HYIMG_SHOTS=<folder> also saves screenshots
 """
 import hashlib, json, os, subprocess, sys, time, urllib.request, uuid
@@ -23,7 +23,7 @@ from playwright.sync_api import sync_playwright
 
 from test_canvas_3d import REPO, HERE, SITE2, tiny_model, free_port, go_on, CORNER
 
-FRAMES = Path(os.environ.get("HYIMG_FRAMES", HERE.parent / "hyimg-frames"))
+FRAMES = Path(os.environ.get("HYIMG_FRAMES", HERE.parent / "hyimg-image-studio"))
 WEBKIT = any(Path(os.path.expanduser("~/Library/Caches/ms-playwright")).glob("webkit-*"))
 ENGINES = ["chromium", "webkit"]
 SHOTS = os.environ.get("HYIMG_SHOTS")

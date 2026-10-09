@@ -11,7 +11,7 @@ Here, in Chromium and WebKit with the frames plugin beside this one: a picture a
 image studio and back (Esc), then the 3D card, two cards at once and the picture are dragged with the mouse: each lands where it was let
 go, its element and its corner squares agree, the drag is over, the move is one undo step and saved, and the page threw nothing.
 
-  HYIMG_REPO=<Hyimg checkout> HYIMG_FRAMES=<hyimg-frames checkout> python3 -m pytest tests/test_card_drag.py
+  HYIMG_REPO=<Hyimg checkout> HYIMG_FRAMES=<hyimg-image-studio checkout> python3 -m pytest tests/test_card_drag.py
 """
 import json, os, subprocess, sys, time, urllib.request, uuid
 from pathlib import Path

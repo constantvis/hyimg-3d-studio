@@ -3,7 +3,7 @@ first button, the cube and «3D Studio» with its key ↵ and a line after it, a
 card (the dock's 3D segment and a double click do the same), Enter too; over two cards there is none. Chromium and WebKit, the board in
 Russian.
 
-  HYIMG_REPO=<Hyimg checkout> HYIMG_FRAMES=<hyimg-frames checkout> python3 -m pytest tests/test_studio_button.py
+  HYIMG_REPO=<Hyimg checkout> HYIMG_FRAMES=<hyimg-image-studio checkout> python3 -m pytest tests/test_studio_button.py
   HYIMG_SHOTS=<folder> also saves the bar in both themes
 """
 import os
