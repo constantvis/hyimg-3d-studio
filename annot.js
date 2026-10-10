@@ -164,7 +164,7 @@ export function attachAnn(L, { HY, t, THREE, unitOf, head, pick, esc, ico }) {
 
   // ---- the tool ---------------------------------------------------------------------------------------------------------------------------
   const bar = L.ui.bar, btn = document.createElement("button");
-  btn.dataset.ann = ""; btn.setAttribute("aria-pressed", "false"); btn.title = t("Annotation: a layer or a spot · C"); btn.setAttribute("aria-label", t("Annotation"));
+  btn.dataset.ann = ""; btn.className = "hy-dkb"; btn.setAttribute("aria-pressed", "false"); btn.title = t("Annotation: a layer or a spot · C"); btn.setAttribute("aria-label", t("Annotation"));
   btn.innerHTML = `${ico("comment")}<kbd>C</kbd>`;
   const pull = bar.querySelector('[data-tool="smart"]'); if (pull) pull.after(btn); else bar.appendChild(btn);
   btn.addEventListener("click", e => { e.stopPropagation(); setTool(!A.tool); }, on);

@@ -171,7 +171,7 @@ const RU = {
   "model {id}": "модель {id}",
   "geometry from Blender (scene.glb)": "геометрия из Blender (scene.glb)",
   "simple shape": "простая фигура",
-  "<b>⌥ or Space + drag</b> turns the camera · <b>right drag</b> pans · <b>wheel</b> zooms": "<b>⌥ или пробел + перетаскивание</b> крутит камеру · <b>правая кнопка</b> двигает · <b>колесо</b> приближает",
+  "<b>⌥ + drag</b> turns the camera · <b>Space + drag</b> or <b>right drag</b> moves the view · <b>wheel</b> zooms": "<b>⌥ + перетаскивание</b> крутит камеру · <b>пробел + перетаскивание</b> или <b>правая кнопка</b> двигают вид · <b>колесо</b> приближает",
   "Select an object": "Выдели объект",
   "3D: card background": "3D: фон карточки",
   "Every camera already has a card": "У каждой камеры уже есть карточка",
@@ -386,6 +386,9 @@ const RU = {
   "Blender: A · {name}…": "Blender: A · {name}…",
   // annotations on the scene's objects and layers (annot.js, owner 2026-10-09)
   "Annotation": "Аннотация",
+  // the one dock and its Actions (dock.js, owner 2026-10-10 on round 18)
+  "Tools": "Инструменты", "Edit": "Правка", "View": "Вид", "Pull": "Тянуть", "Fit the card between the panels": "Вписать карточку между панелями",
+  "view, masks and depth beside the card": "вид, маски и глубина рядом с карточкой",
   "Annotation: a layer or a spot · C": "Аннотация: слой или место · C",
   "Annotations": "Аннотации",
   "Layers": "Слои",

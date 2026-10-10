@@ -48,7 +48,7 @@ def test_each_tool_does_its_own_job_and_alt_turns_the_camera(tmp_path, engine):
             page.evaluate("() => { const t0 = window.hyToast; window.hyToast = (t, k, o) => { __note(String(t)); return t0 && t0(t, k, o); }; }")
             page.dblclick(".plg[data-id=c]", position={"x": 30, "y": 30}); page.wait_for_selector(".m3r .hy-slider", timeout=60000)
             page.wait_for_timeout(1200); go_on(page)
-            assert "⌥ или пробел + перетаскивание" in page.locator(".m3r .m3hint").inner_text()
+            assert "⌥ + перетаскивание крутит камеру" in page.locator(".m3r .m3hint").inner_text()   # Space moves the view since 2026-10-10 (test_view_keys.py)
             titles = page.evaluate("() => Object.fromEntries([...document.querySelectorAll('.m3t [data-tool]')].map(b => [b.dataset.tool, b.title]))")
             assert [titles[k][-1] for k in ("select", "translate", "rotate", "scale", "smart")] == list("VGRST"), titles
             o0, c0 = state(page)

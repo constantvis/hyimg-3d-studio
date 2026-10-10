@@ -18,7 +18,7 @@ import { setT as sceneWords } from "./scene.js";
 import { translator } from "./lang.js";   // English or Russian, as the board is set (owner 2026-10-06)
 import { attachBlender, studioAngle, bridgeApi } from "./blender.js";   // a studio's scene in Blender: three.js · EEVEE · Cycles and «Render» on a plate at the card (owner 2026-10-06)
 import { initHistory, itemFields, remember, settle, undo, undoState, historyTab, shotTaken } from "./history.js";   // ⌘Z, ↶ ↷ and History (2026-10-07)
-import { initTools, tools } from "./tools.js";   // each tool its own drag, the camera on ⌥ / Space / the middle button (2026-10-07)
+import { initTools, tools } from "./tools.js";   // each tool its own drag, the camera on ⌥ and the middle button, the view on Space (2026-10-10)
 import { initView, viewOf, putVersion, askCancel, cancelled, changedSince, originalCamera, syncCamera, sharedKey } from "./view.js";   // the card's view, Save, Cancel
 import { writeScene, writeUi, openingBoard, boardDiffers } from "./view.js";   // Save waits for the file, Cancel keeps others' work (P4 2026-10-10)
 import { layout as layoutSecs, drag as dragSecs, fold as foldSecs, reset as resetSecs } from "./sections.js";   // the layer list's sections as one stack
@@ -28,7 +28,7 @@ import { lightPane as lightPaneOf } from "./lights.js";   // a light's panel, it
 import { attachLook } from "./variants.js";   // «Свет и материалы»: the card's variant of light and materials, A/B (owner 2026-10-07)
 import { outlinerMicro, camLed, scrubSize, oneLine, holdText } from "./micro.js";   // round 15's micro UI, round 16's scrub (owner 2026-10-09/10), one-line fields
 import { sizeKeys, searchKeys, treeRename } from "./fields.js";   // Esc, ↵, Tab by Hyimg's one rule in W and H, the search, a row's rename (P4 2026-10-10)
-import { attachAnn } from "./annot.js";   // annotations tied to the scene's objects and layers, pins in the view (owner 2026-10-09, round 15)
+import { attachAnn } from "./annot.js"; import { studioDock } from "./dock.js";   // annotations tied to the scene's objects and layers, pins in the view (owner 2026-10-09, round 15)
 
 const TYPE = "model3d";
 const SHOTS = "3d/shots";
@@ -489,6 +489,7 @@ async function stopLive(keep = true) {
   L.ac.abort();   // every listener this session put on the shared canvas
   clearInterval(L.rsI);
   if (L.themeObs) L.themeObs.disconnect();
+  if (L.sdock) L.sdock.destroy();   // the dock's list and Actions (dock.js)
   if (L.kit) L.kit.destroy(); if (L.dk) L.dk.destroy(); if (L.blender) L.blender.dispose(); if (L.look) L.look.dispose(); if (L.ann) L.ann.dispose(keep, keep ? d : L.sceneOpen);
   L.orbit.dispose(); L.tc.detach(); L.view.scene.remove(L.tc.getHelper()); L.tc.dispose();
   if (L.kh) L.kh.hide(); L.view.helpers.clear(); if (HY.dock) HY.dock(null); L.ui.root.remove(); L.unplace(); L.el.querySelectorAll(".m3pause").forEach(x => x.remove()); renderer.domElement.remove(); L.el.classList.remove("plg-live"); document.body.classList.remove("m3edit");
@@ -785,14 +786,14 @@ function buildUI(L) {
   L.themeObs = new MutationObserver(() => { const t = pageTheme(); root.dataset.theme = t; root.querySelectorAll(".dialkit-root").forEach(r => { r.dataset.theme = t; }); });
   L.themeObs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-ui"] });
   root.innerHTML = `
-    <div class="m3p m3t"><span class="tip"><button class="plus" data-plus title="${t("Add")}" aria-label="${t("Add")}">${ico("plus")}</button><div class="menu m3menu" hidden>${ADD.map(([k, w]) => `<button data-add="${k}">${ico(MENU_ICON[k] || "light")}${t(w)}</button>`).join("")}</div></span>
-      <span class="sep"></span>${[["select", "Select", "V"], ["translate", "Move", "G"], ["rotate", "Rotate", "R"], ["scale", "Scale", "S"], ["smart", "Pull: by a point, as on a string in thick gel", "T"]].map(([k, w, key]) => `<button data-tool="${k}" data-key="${key}" title="${t(w)} · ${key}" aria-label="${t(w)}">${ico(k)}<kbd>${key}</kbd></button>`).join("")}
-      <button class="m3ic" data-a="undo" title="${t("Undo · ⌘Z")}" aria-label="${t("Undo")}" disabled>${hyIcon("undo", 0, 2)}</button>
-      <button class="m3ic" data-a="redo" title="${t("Redo · ⇧⌘Z")}" aria-label="${t("Redo")}" disabled>${hyIcon("redo", 0, 2)}</button>
-      <button class="m3reset" data-a="reset" title="${t("Reset all: the scene and the card as they were when the studio opened")}" aria-label="${t("Reset all")}" disabled>${hyIcon("reset", 0, 2)}</button><span class="sep"></span>
-      <button class="wide" data-a="shot" title="${t("View, masks and depth beside the card · P")}">${ico("shot")}${t("Snapshot")}</button></div>
+    <div class="m3p m3t"><span class="tip"><button class="plus hy-dkb" data-plus title="${t("Add")}" aria-label="${t("Add")}">${ico("plus")}</button><div class="menu m3menu" hidden>${ADD.map(([k, w]) => hyMenuItem(`data-add="${k}"`, ico(MENU_ICON[k] || "light"), t(w))).join("")}</div></span>
+      <span class="sep"></span>${[["select", "Select", "V"], ["translate", "Move", "G"], ["rotate", "Rotate", "R"], ["scale", "Scale", "S"], ["smart", "Pull: by a point, as on a string in thick gel", "T"]].map(([k, w, key]) => `<button class="hy-dkb" data-tool="${k}" data-key="${key}" title="${t(w)} · ${key}" aria-label="${t(w)}">${ico(k)}<kbd>${key}</kbd></button>`).join("")}
+      <span class="sep"></span><button class="m3ic hy-dkb" data-a="undo" title="${t("Undo · ⌘Z")}" aria-label="${t("Undo")}" disabled>${hyIcon("undo", 0, 2)}</button>
+      <button class="m3ic hy-dkb" data-a="redo" title="${t("Redo · ⇧⌘Z")}" aria-label="${t("Redo")}" disabled>${hyIcon("redo", 0, 2)}</button>
+      <button class="m3reset hy-dkb" data-a="reset" title="${t("Reset all: the scene and the card as they were when the studio opened")}" aria-label="${t("Reset all")}" disabled>${hyIcon("reset", 0, 2)}</button><span class="sep"></span><span class="dgrp" data-dk="view"></span><span class="sep"></span>
+      <button class="wide" data-a="shot" title="${t("View, masks and depth beside the card · P")}">${ico("shot")}${t("Snapshot")}</button><span data-dk="acts"></span></div>
     <div class="m3title hy-plate" data-hyui><b>${t("3D scene")}</b><code class="fp"></code></div>
-    <div class="m3p m3l hy-blk" data-hyui><div class="lhd"><label class="hy-search">${LIB_FIND}<input data-q type="search" placeholder="${t("Search layers")}" aria-label="${t("Search layers")}" autocomplete="off" spellcheck="false"><hy-scope data-scope></hy-scope></label>
+    <div class="m3p m3l hy-blk" data-hyui><div class="lhd"><label class="hy-search">${LIB_FIND}<input data-q type="search" placeholder="${t("Search layers")}" aria-label="${t("Search layers")}" autocomplete="off" spellcheck="false"></label>
       <hy-minitoggle data-raw title="${t("Show the files' wrappers without geometry")}">${t("All nodes")}</hy-minitoggle></div>
       <div class="tr">${SECS.map((k, i) => `${i ? `<div class="msp" data-before="${k}"></div>` : ""}<section class="ms" data-s="${k}" hidden><div class="msh hy-sh" role="button" aria-expanded="true" title="${t("Fold or unfold")}"><span class="mtg hy-sh-cv">${CHEV()}</span><span class="mst">${t(SEC_NAME[k])}</span><span class="cnt hy-sh-n"></span></div><div class="msb"><div class="msi"></div></div></section>`).join("")}<div class="none" hidden>${t("Nothing found")}</div></div></div>
     <div class="m3p m3r hy-blk" data-hyui><div class="m3tabs hy-bh" role="tablist"><button class="m3tab hy-bh-tab on" data-tab="props" role="tab" aria-selected="true">${ico("properties", "")}${t("Properties")}</button><button class="m3tab hy-bh-tab" data-tab="hist" role="tab" aria-selected="false">${ico("history", "")}${t("History")}</button></div><div class="ih"></div><div class="inf"></div><div class="dk"></div><div class="m3hist" role="list" hidden></div></div>
@@ -876,7 +877,7 @@ function buildUI(L) {
     if (kids.length && open) kids.forEach((c, i) => row(rows, c, [...guides, { on: i < kids.length - 1, c: col }], undefined, undefined, col, ih || hidden, il || !!locked));
     return true;
   };
-  const scope = outlinerMicro(L, root, { q, chainOf, kidsOf, tree: () => tree() });   // «All nodes» and the search's count (micro.js)
+  const scope = outlinerMicro(L, root, { q, tree: () => tree() });   // «All nodes», the one switch of the files' wrappers (micro.js)
   const secEl = Object.fromEntries(SECS.map(k => [k, q(`.ms[data-s="${k}"]`)]));
   const tree = () => {
     const d = doc(), cardCam = L.camId(), nav = navOf(), out = { objects: [], lights: [], cameras: [], materials: [] }, top = { objects: 0, lights: 0, cameras: 0, materials: 0 }, led = camLed(t);
@@ -1274,7 +1275,7 @@ function buildUI(L) {
   const scenePane = () => {
     const d = doc(), it = HY.board.items[L.id], cardCam = L.camId(), c = d.cameras.find(x => x.id === cardCam) || d.cameras[0], CB = camBlock(c);
     const w = d.world = d.world || {}, bg = Object.assign({ transparent: false, color: hexOf((w.color || [0.18, 0.18, 0.18]).map(x => x * (w.strength ?? 1))), opacity: 100 }, it.bg || {});
-    inf(`<p class="hy-hint m3hint">${t("<b>⌥ or Space + drag</b> turns the camera · <b>right drag</b> pans · <b>wheel</b> zooms")}</p>`);   // the app's footnote (ui/look.css .hy-hint): the controls, key words lit
+    inf(`<p class="hy-hint m3hint">${t("<b>⌥ + drag</b> turns the camera · <b>Space + drag</b> or <b>right drag</b> moves the view · <b>wheel</b> zooms")}</p>`);   // the app's footnote (ui/look.css .hy-hint): the controls, key words lit
     // the camera block keeps what «Широкий ↔ изометрия» shows: compared with the lens it rounds differently, and every later change of the
     // panel (the background's transparency) took that for a move of the slider and drove the camera in again (owner 2026-10-04)
     dial(t("Scene"), {
@@ -1307,25 +1308,17 @@ function buildUI(L) {
     const list = await projectModels();
     menu.querySelectorAll("[data-models]").forEach(x => x.remove());
     const at = menu.querySelector('[data-add="area"]'), add = h => at.insertAdjacentHTML("beforebegin", h);
-    if (!list.length) add(`<button data-models disabled title="${esc(t("Model: 3d/models/<name>/model.json and its .glb in the board's folder"))}">${ico("model")}${t("No models in 3d/models")}</button>`);
-    for (const m of list) add(`<button data-models data-add="model:${esc(m.id)}" title="3d/models/${esc(m.id)}">${ico("model")}${esc(m.title || m.id)}</button>`);
+    if (!list.length) add(hyMenuItem(`data-models disabled title="${esc(t("Model: 3d/models/<name>/model.json and its .glb in the board's folder"))}"`, ico("model"), t("No models in 3d/models")));
+    for (const m of list) add(hyMenuItem(`data-models data-add="model:${esc(m.id)}" title="3d/models/${esc(m.id)}"`, ico("model"), esc(m.title || m.id)));
   };
   const bar = q(".m3t");
+  // «+» opens Hyimg's dock list over the dock (hyimg ui/dock.js through dock.js, owner 2026-10-10: the board's «+» and this one alike)
   const onBar = ev => {
-    if (ev.target.closest("[data-plus]")) {
-      menu.hidden = !menu.hidden;
-      if (!menu.hidden) fillModels();
-      if (!menu.hidden && bar.classList.contains("plgdock")) {   // in the dock the menu opens upward, over the board
-        const r = ev.target.closest("[data-plus]").getBoundingClientRect(); Object.assign(menu.style, { position: "fixed", left: r.left + "px", top: "auto", bottom: innerHeight - r.top + 10 + "px" });
-      }
-      return;
-    }
-    const t = ev.target.closest("[data-add],[data-tool],[data-a]"); if (!menu.contains(ev.target)) menu.hidden = true; if (!t) return;
-    if (t.dataset.add) { menu.hidden = true; return addThing(L, t.dataset.add); }
+    const t = ev.target.closest("[data-tool],[data-a]"); if (!t) return;
     if (t.dataset.tool) return setTool(L, t.dataset.tool);
     if (t.dataset.a === "shot") return shoot(L);
     if (t.dataset.a === "reset") return resetAll(L);
-    if (t.dataset.a === "undo" || t.dataset.a === "redo") return undo(L, t.dataset.a === "redo" ? 1 : -1);
+    if (t.dataset.a === "undo" || t.dataset.a === "redo") return step(L, t.dataset.a === "redo" ? 1 : -1);
     if (t.dataset.a === "save") return stopLive(true);
     if (t.dataset.a === "cancel") return askCancel(L);
   };
@@ -1337,6 +1330,7 @@ function buildUI(L) {
     bar.classList.remove("m3p"); root.appendChild(menu); bar.addEventListener("click", onBar); bar.addEventListener("pointerdown", e => e.stopPropagation());
     HY.dock(bar);
   }
+  L.sdock = studioDock(L, { t, ico, bar, menu, fillModels, ADD, MENU_ICON, addThing, setTool, shoot, resetAll, undo: d => step(L, d), save: () => stopLive(true), cancel: () => askCancel(L) });
 
   // -- the axes: Blender's colours (x red, y green, z blue up). Drag turns the card's camera around what it looks at, a click on an
   // axis flies it there in 0.4 s (owner 2026-10-03: the circle must turn and the jump be smooth); angles go on a sphere, so a top view
@@ -1477,12 +1471,15 @@ export function init(hy, hooks) {
   const dkCss = document.createElement("link"); dkCss.rel = "stylesheet"; dkCss.href = new URL("./vendor/dialkit/styles.css", import.meta.url).href; document.head.appendChild(dkCss);
 }
 export { goLive, newScene, stopLive };
+// a step of ⌘Z, ⇧⌘Z or the dock's ↶ ↷, then its name over the button for 2 s (dock.js, Hyimg's hyDock.steps)
+const step = (L, d) => undo(L, d).then(() => { if (L.sdock && live === L) L.sdock.done(d < 0 ? "undo" : "redo"); });
 export function onKey(e) {
   if (!live) return false;
   const L = live, k = e.key.toLowerCase(), mod = e.metaKey || e.ctrlKey;
   // ⌘Z ⇧⌘Z are the studio's steps wherever the focus is after a gesture (a slider, a row of the list); a field being typed in keeps its own
   // (the board does not hand those keys over then). A DialKit control kept ⌘Z before (owner 2026-10-07: «cmd + z не работает в 3D studio»)
-  if (mod && !e.altKey && (k === "z" || k === "я")) { e.preventDefault(); undo(L, e.shiftKey ? 1 : -1); return true; }
+  if (mod && !e.altKey && (k === "z" || k === "я")) { e.preventDefault(); step(L, e.shiftKey ? 1 : -1); return true; }
+  if (mod && !e.altKey && !e.shiftKey && (e.code === "KeyK" || k === "k" || k === "л")) { e.preventDefault(); if (L.sdock) L.sdock.toggle(); return true; }   // ⌘K Actions (dock.js)
   // a control of the panels with the focus keeps no key from the studio (P4 S-15, the board asks hyTyping): Esc only lets go of it
   const ae = document.activeElement; if (e.key === "Escape" && ae && ae !== document.body && L.ui.root.contains(ae)) { e.preventDefault(); ae.blur(); return true; }
   if (L.ann && L.ann.key(e)) return true;   // annot.js: C, Esc
@@ -1496,7 +1493,7 @@ export function onKey(e) {
   // ⌘↵ saves, as in the image studio; a plain Enter never does (owner 2026-10-07: «просто Enter можно случайно нажать или применить, например,
   // при изменении чисел в параметрах»): in a number field it only takes the value
   if (e.key === "Enter") { if (mod && !e.altKey && !e.shiftKey) { e.preventDefault(); stopLive(true); } return true; }
-  if (e.key === " ") { e.preventDefault(); return true; }   // Space + drag turns the camera (tools.js), not the board's hand
+  if (e.key === " ") { e.preventDefault(); return true; }   // Space + drag moves the view (tools.js), the studio's own hand, not the board's
   if (e.key === "Backspace" || e.key === "Delete") {   // every chosen row, not only the first (P4 S-21)
     const ids = (L.multi && L.multi.length > 1 ? L.multi : [L.sel]).map(n => picked(L, n)).filter(p => p.kind && p.kind !== "layer").map(p => p.id);
     if (ids.length) { e.preventDefault(); removeThing(L, ids); } else if (picked(L).kind === "layer") HY.toast(t("A layer is part of its model's file: hide it with its eye"), "info", { key: "m3layer" }); return true;

@@ -4,8 +4,9 @@
 //   picture's plane (the point under the mouse stays under it), turns it about the vertical as a turntable, scales it (up larger);
 //   the gizmo's handles still hold it to one axis. Pull (T): its own drag (engine.js smartMove).
 //   With nothing under the pointer and nothing picked, a tool says «Select an object» instead of turning the camera.
-// The camera in every tool, one scheme (the Scene panel's footnote): ⌥ + drag, Space + drag or the middle button turn it, the right
-// button pans, the wheel zooms.
+// The camera in every tool, one scheme (the Scene panel's footnote): ⌥ + drag or the middle button turn it, Space + drag or the right
+// button move the view, the wheel zooms. Space moves the view as it does on the board (owner 2026-10-10 on round 18, r18-dock.html
+// question 2, ★ yes: «Пробел в 3D двигает вид, как на доске, вращение на ⌥ и средней кнопке»); from 2026-10-07 to then Space turned it.
 let THREE = null, HY = null, t = k => k;
 export function initTools(c) { THREE = c.THREE; HY = c.HY; t = c.t; }
 
@@ -24,7 +25,7 @@ export function tools(L, cvs, h) {
   cvs.addEventListener("pointerdown", ev => {   // capture: before the camera's, the gizmo's and the pull's own handlers
     if (ev.button !== 0) return;
     L.turning = ev.altKey || space;
-    O.mouseButtons.LEFT = L.turning ? M.ROTATE : -1;   // ⌥ or Space: the camera, whatever the tool
+    O.mouseButtons.LEFT = ev.altKey ? M.ROTATE : space ? M.PAN : -1;   // ⌥ turns the camera, Space moves the view, whatever the tool
     L.tc.enabled = !L.turning;   // and not the gizmo under the pointer (its centre covers the object)
     // an axis handle of the gizmo under the pointer: the gizmo's drag along it; its centre (it covers the object) is the tool's own drag
     if (L.turning || L.tc.dragging || (L.tc.axis && !CENTRE.includes(L.tc.axis)) || L.tool === "select") return;

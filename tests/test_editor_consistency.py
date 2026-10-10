@@ -57,10 +57,11 @@ def test_one_radius_round_tools_and_one_icon_family(hy, engine):
         # every row control has one radius, the selects as the sliders: a block's well, 6 px in both shapes (round 12 «A · Line», owner
         # 2026-10-09: «реализуй уже A Line версию на весь интерфейс»; until then the app's --hy-row-r, a pill in the round shape)
         radii_agree(frame, "6px")
-        # the tools in the board's dock are circles: as wide as tall, and a radius of half or more
+        # the tools in the board's dock are Hyimg's one dock button, 36 × 34 with round ends (owner 2026-10-10 on round 18: one size in every
+        # dock; they were 34 × 34 circles since 2026-10-06)
         for k in ("select", "translate", "rotate", "scale", "smart"):
             b = frame.evaluate(f"() => {{ const b = document.querySelector('#dock .plgdock [data-tool={k}]'), r = b.getBoundingClientRect(); return {{ w: r.width, h: r.height, rad: parseFloat(getComputedStyle(b).borderTopLeftRadius) }}; }}")
-            assert abs(b["w"] - b["h"]) < 0.5 and b["rad"] >= b["h"] / 2, (k, b)
+            assert (round(b["w"]), round(b["h"])) == (36, 34) and b["rad"] >= b["h"] / 2, (k, b)
         # one icon family: the tools' drawings are ui/icons.js's, in its 1.85 line (the frame editor's)
         fam = frame.evaluate("""() => { const map = { select: 'select', translate: 'move', rotate: 'rotate', scale: 'scale', smart: 'pull' };
           return Object.entries(map).map(([k, f]) => { const s = document.querySelector(`#dock .plgdock [data-tool=${k}] svg`);

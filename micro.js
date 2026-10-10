@@ -1,38 +1,25 @@
 // Round 15's micro UI in 3D Studio (owner 2026-10-09 on r15-micro.html: «Все топ, все делай»; r15-3d.html) and round 16's scrub (owner
 // 2026-10-10 on r16-scrub.html, version A: «отлично, беру»), with Hyimg's primitives (review/ui/hy):
-//   outlinerMicro  «All nodes» is a mini toggle beside the layer list's search and the search's count «part / all» is the same switch
-//                  (<hy-minitoggle>, <hy-scope>): part counts the rows the list folds the models' nodes into, all every node
+//   outlinerMicro  «All nodes» is a mini toggle beside the layer list's search (<hy-minitoggle>). Until 2026-10-10 the search's count
+//                  «part / all» (<hy-scope>) was the same switch; two places for one switch, it went (owner 2026-10-10, round 18
+//                  question 18, version B: «только мини-тогл»)
 //   camLed         the active camera's LED after its name (<hy-led>, the Studio's pink), where the «card» chip stood
 //   scrubSize      the render size's W and H letters drag the number (window.hyScrub); the card takes the size once at the end of a drag,
 //                  a size being a whole new render; Esc puts it back
 // The inspector's own on/off, short choices and X Y Z rows are DialKit patches (vendor/dialkit/index.js: mountToggle, mountMicroSeg, mountVec).
 
 /**
- * Wires the outliner's search row; returns scope(doc), to call after each redraw of the list.
+ * Wires «All nodes» beside the outliner's search; returns sync(doc), to call after each redraw of the list.
  * @param {any} L the live editor
  * @param {HTMLElement} root the panels' root
- * @param {{ q: (s: string) => any, chainOf: (n: any) => any[], kidsOf: (n: any) => any[], tree: () => void }} o
+ * @param {{ q: (s: string) => any, tree: () => void }} o
  */
-export function outlinerMicro(L, root, { q, chainOf, kidsOf, tree }) {
-  const nodes = (n, raw) => {
-    const c = n.userData.kind || raw ? [n] : chainOf(n), last = c[c.length - 1], kids = n.userData.kind ? kidsOf(n) : kidsOf(last);
-    return 1 + kids.reduce((a, k) => a + nodes(k, raw), 0);
-  };
-  const count = (d, raw) => {   // chainOf folds by L.raw: counted as the list would be drawn either way
-    const was = L.raw; L.raw = raw; let n = 0;
-    for (const o of d.objects) { const u = L.view.units.get(o.id); if (u) n += nodes(u.obj, raw); }
-    L.raw = was; return n;
-  };
+export function outlinerMicro(L, root, { q, tree }) {
   root.addEventListener("hy-change", ev => {
-    const raw = ev.target.matches("hy-minitoggle[data-raw]") ? ev.detail.checked : ev.target.matches("hy-scope[data-scope]") ? ev.detail.all : null;
-    if (raw === null) return;
-    L.raw = !!raw; tree();
+    if (!ev.target.matches("hy-minitoggle[data-raw]")) return;
+    L.raw = !!ev.detail.checked; tree();
   });
-  return d => {
-    const sc = q("hy-scope[data-scope]"), mt = q("hy-minitoggle[data-raw]"), part = count(d, false), all = count(d, true);
-    sc.hidden = all <= part; sc.setAttribute("shown", String(part)); sc.setAttribute("total", String(all)); sc.toggleAttribute("all", !!L.raw);
-    mt.toggleAttribute("checked", !!L.raw);
-  };
+  return () => { q("hy-minitoggle[data-raw]").toggleAttribute("checked", !!L.raw); };
 }
 
 /** @param {(k: string) => string} t */

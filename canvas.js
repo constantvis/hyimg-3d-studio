@@ -193,7 +193,7 @@ export function register(hy) {
       padding: calc(3px / var(--z)) calc(9px / var(--z)); border-radius: 999px; background: rgba(20,20,22,.72); color: #fff; font: 500 calc(11px / var(--z)) var(--sans); white-space: nowrap; pointer-events: none; }
     .plg-live .m3bst > hy-led { width: calc(6px / var(--z)); height: calc(6px / var(--z)); margin: 0 calc(6px / var(--z)) calc(1px / var(--z)) 0; }   /* round 15's LED, at the card's zoom */
     /* the reset among the tools: a neutral round icon like them (owner 2026-10-06: red is only for deleting) */
-    .bar .plgdock button:is(.m3reset, .m3ic) { width: 38px; padding: 0 !important; justify-content: center; } .m3t button:is(.m3reset, .m3ic) { width: 30px; }
+    .bar .plgdock button:is(.m3reset, .m3ic) { width: 36px; padding: 0 !important; justify-content: center; } .m3t button:is(.m3reset, .m3ic) { width: 30px; }
     :root[data-ui="studio"] .bar .plgdock button:is(.m3reset, .m3ic) { width: 32px; }
     /* Blender's controls in the board's selection bar over the card (.tidy.plgedit, canvas.html): its 44 px, glass, shadow and clamping;
        the app's .seg, a select with the app's chevron, «Render» the one dark button, every control 34 px as the bar's buttons */
@@ -275,16 +275,17 @@ export function register(hy) {
     .m3t button { position: relative; width: 30px; height: 30px; border: 0; border-radius: var(--m3-r); background: none; color: var(--sub); display: grid; place-items: center; }
     /* the tools are circles, as the frame editor's (owner 2026-10-06: «почему-то они не круглые в 3d studio сами эти элементы»): in the
        board's dock a tool button is as wide as the dock's buttons are tall, the dock's 999 px makes it round, «pro» squares it to 8 px */
-    #dock .plgdock :is(button[data-tool], button[data-plus]) { width: 34px !important; }
+    #dock .plgdock :is(button[data-tool], button[data-plus]) { width: 36px !important; }   /* Hyimg's one dock: 36 × 34, no plate (ui/dock.js, 2026-10-10) */
     :root[data-ui="studio"] #dock .plgdock :is(button[data-tool], button[data-plus]) { width: var(--st-h, 30px) !important; }
     .m3t button:hover { background: var(--raise); color: var(--ink); } .m3t button.on { background: var(--pink); color: var(--pink-ink); }
     /* the key letters are the button's own <kbd> child: the app's rule (ui/keyhints.js, owner 2026-10-05) shows them only while ⌘ is held, over the button's right end, never widening it */
     .m3t button > kbd { display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 5px; font: 600 10px/1 var(--sans, system-ui); background: var(--raise); color: var(--sub); }
-    .m3t .plus { background: var(--raise); color: var(--ink); } .m3t .sep { width: 1px; height: 18px; background: var(--line); margin: 0 5px; }
+    .m3t:not(.plgdock) .plus { background: var(--raise); color: var(--ink); } .m3t .sep { width: 1px; height: 18px; background: var(--line); margin: 0 5px; }
     .m3t .wide { width: auto; padding: 0 12px; display: flex; gap: 6px; color: var(--ink); background: var(--raise); margin-left: 4px; } .m3t .pri { background: var(--pink); color: var(--hy-on-accent, #fff); }
     .m3t .tip { position: relative; }
-    .m3menu { position: absolute; top: 40px; left: -5px; z-index: 70; min-width: 180px; padding: 5px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--hy-sh-pop, 0 16px 40px rgba(0,0,0,.45)); display: grid; gap: 1px; }
-    .m3menu[hidden] { display: none; } .m3menu button { border: 0; border-radius: 6px; background: none; cursor: default; font: inherit; } .m3menu button:hover { background: var(--raise); color: var(--ink); } .m3menu button { width: 100%; height: 28px; display: flex; gap: 8px; justify-content: flex-start; padding: 0 8px; color: var(--row-ink); }
+    .m3menu:not(.hy-dkmenu) { position: absolute; top: 40px; left: -5px; z-index: 70; min-width: 180px; padding: 5px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--hy-sh-pop, 0 16px 40px rgba(0,0,0,.45)); display: grid; gap: 1px; }
+    .m3menu[hidden] { display: none; } .m3menu:not(.hy-dkmenu) button { border: 0; border-radius: 6px; background: none; cursor: default; font: inherit; }
+    .m3menu:not(.hy-dkmenu) button:hover { background: var(--raise); color: var(--ink); } .m3menu:not(.hy-dkmenu) button { width: 100%; height: 28px; display: flex; gap: 8px; justify-content: flex-start; padding: 0 8px; color: var(--row-ink); }
     .m3l { left: var(--l); top: var(--t); bottom: var(--b); width: 240px; display: flex; flex-direction: column; overflow: hidden; padding: 8px 10px 6px; box-sizing: border-box; }
     /* the panels glide with the library when it opens or closes (owner 2026-10-06: «it should move in unison»): --inset-ms is how long the library's own move takes
        (the app's page sends it with --inset), the curve is the library's; a window resize sends 0 and nothing glides */
@@ -292,9 +293,9 @@ export function register(hy) {
     .m3t:not(.plgdock) { transition: left var(--inset-ms, 0ms) cubic-bezier(.32, .72, 0, 1), right var(--inset-ms, 0ms) cubic-bezier(.32, .72, 0, 1); }
     /* the search is the library's «Find folder» (ui/look.css .hy-search: the same field, magnifier, height, radius and ground) */
     .m3l .lhd { display: flex; flex: none; padding-bottom: 6px; } .m3l .lhd .hy-search > input { color: var(--ink); }
-    /* round 15's micro UI (owner 2026-10-09): «All nodes» a mini toggle beside the search, the search's count the same switch (ui/hy) */
-    .m3l .lhd { align-items: center; gap: 4px; } .m3l .lhd .hy-search > hy-scope { position: absolute; right: 3px; }
-    .m3l .lhd .hy-search:has(> hy-scope:not([hidden])) > input { padding-right: 56px !important; }
+    /* round 15's micro UI (owner 2026-10-09): «All nodes» a mini toggle beside the search (ui/hy); the search's count, the same switch, went
+       on 2026-10-10 (round 18 question 18, version B: one place for one switch) */
+    .m3l .lhd { align-items: center; gap: 4px; }
     /* the sections Objects, Lights, Cameras (engine.js tree): a title that folds (the app's chevron, turned with the app's curve), the rows,
        the app's splitter between two (ui/split.js). One stack (sections.js): engine.js sets each section's rows in px, a fold glides along
        the app's curve (.tr.glide), a drag does not */
@@ -431,10 +432,8 @@ export function register(hy) {
   });
   if (hy.restored) { if (hy.history) hy.history(() => { PRE = revs(); }); hy.restored(why => sceneBack(why)); }
   hy.addButton(CUBE, t("3D scene: an object on the floor, light and a camera, double-click to edit"), () => engine().then(m => m.newScene()));
-  // «3D Studio» first on the bar over one 3D card (owner 2026-10-07), as «Crop» over a picture: what a double click, Enter and the dock's
-  // 3D segment do. Not over several cards or in the studio itself (its own bar is there then)
-  if (hy.bar) hy.bar(ids => ids.length === 1 && oneCard() === ids[0] && !(E && E.isLive()) ? [{ first: true, icon: CUBE.replace('width="18" height="18"', 'width="15" height="15"'), label: t("3D Studio"), keys: "↵",
-    title: t("Open 3D Studio for this card · Enter or a double click"), fn: () => studio(ids[0]) }] : []);
+  // «3D Studio ↵» on the bar over one 3D card (owner 2026-10-07) is Hyimg's Studio chip now, for every Studio (ui/studiochip.js, owner
+  // 2026-10-10 on round 19's switch-d), from the mode below: its name, its pink, the same opening as the dock's 3D segment
   // the 3D studio is a mode of the board's dock switch (owner 2026-10-06: «3D studio turns on only when we entered a 3D object, otherwise
   // not»): chosen while the editor is open, enabled when one 3D card is selected (a click opens it); leaving is the editor's Done (Enter)
   // color: the chosen segment in 3D Studio's pink, not the board's blue (owner 2026-10-09: «конечно», to giving 3D Studio its colour)
@@ -448,7 +447,7 @@ export function register(hy) {
     // the dock's Board, another Studio's segment, a page switch: Save, waited for (owner decision 2026-10-10, P4 S-27 A, S-31)
     leave() { if (!E || !E.isLive()) return; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); return E.stopLive(true); },
     // the Hint bar as it opens (Hyimg ui/modes.js, P4 S-29): V, C, these, Esc / ⌘↵ Save; the camera flies the card between the panels (S-61)
-    primary: "Save", hints: [{ id: "orbit", keys: ["alt", "space"], t: "3d::Orbit" }, { id: "move", keys: ["g"], t: "3d::Move" }],
+    primary: "Save", hints: [{ id: "orbit", keys: ["alt"], t: "3d::Orbit" }, { id: "move", keys: ["g"], t: "3d::Move" }],
   });
   // an object whose file is missing or unreadable (scene.js): one note a file, not one a frame (P4 S-46)
   addEventListener("hy3d-broken", e => { const d = e.detail || {}; HY.toast(t("3D: «{name}» not loaded: {path}", { name: d.name || d.id, path: d.path || "?" }), "error", { key: "m3broken:" + d.path }); });

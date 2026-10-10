@@ -1,5 +1,6 @@
 """Round 15's micro UI in 3D Studio (owner 2026-10-09 on r15-micro.html: «Все топ, все делай, кроме номера пять»; r15-3d.html): «All nodes»
-is a mini toggle beside the search and the search's count «part / all» is the same switch; the current camera wears a 6 px LED in 3D
+is a mini toggle beside the search, the one switch: the search's count that did the same is gone (owner 2026-10-10, round 18 question
+18, version B); the current camera wears a 6 px LED in 3D
 Studio's pink instead of the «card» pill; the rows' eye and lock show on hover and a set one stays (.hy-ri); an inspector's on or off is a
 mini toggle (Visible), its 2 to 4 short choices micro segments (Selection highlight); a material changed in the card's variant wears the
 change dot; the Blender line's state is an LED. Chromium, dark.
@@ -47,26 +48,17 @@ def test_3d_studio_wears_the_micro_ui(tmp_path):
             mt = page.locator(".m3l .lhd > hy-minitoggle[data-raw]")
             assert mt.count() == 1 and mt.inner_text().strip() == "All nodes"
             assert mt.evaluate(BOX)[1] == 22 and mt.evaluate("m => m.input.getAttribute('role')") == "switch"
-            # 2 · the search's count is the same switch: part / all, a click shows every node and turns the toggle on
-            sc = page.locator(".m3l .lhd .hy-search > hy-scope[data-scope]")
-            assert sc.count() == 1
-            part, total = sc.evaluate("s => [+s.getAttribute('shown'), +s.getAttribute('total')]")
-            assert 0 < part <= total, (part, total)
-            print("scope", part, total)
+            # 2 · one place for one switch (round 18 question 18, version B): no count in the search; the toggle shows the files' wrappers
+            assert page.locator(".m3l hy-scope, .m3l [data-scope]").count() == 0
             if os.environ.get("HYIMG_TEST_SHOTS"):
                 page.screenshot(path=os.path.join(os.environ["HYIMG_TEST_SHOTS"], "micro-3d.png"))
-            if total > part:
-                assert sc.is_visible() and sc.evaluate(BOX)[1] == 18
-                sc.locator("button").click(); page.wait_for_timeout(200)
-                assert sc.evaluate("s => [s.hasAttribute('all'), s.button.getAttribute('aria-pressed')]") == [True, "true"]
-                assert mt.evaluate("m => [m.hasAttribute('checked'), m.input.checked]") == [True, True]
-                rows_all = page.locator(".m3l .ms[data-s=objects] .row").count()
-                mt.click(); page.wait_for_timeout(200)
-                assert not sc.evaluate("s => s.hasAttribute('all')") and page.locator(".m3l .ms[data-s=objects] .row").count() <= rows_all
-            else:
-                assert not sc.is_visible()
+            rows = page.locator(".m3l .ms[data-s=objects] .row").count()
+            mt.click(); page.wait_for_function("() => document.querySelector('.m3l hy-minitoggle[data-raw]').hasAttribute('checked')")
+            assert mt.evaluate("m => m.input.checked") and page.locator(".m3l .ms[data-s=objects] .row").count() >= rows
+            mt.click(); page.wait_for_function("() => !document.querySelector('.m3l hy-minitoggle[data-raw]').hasAttribute('checked')")
+            assert page.locator(".m3l .ms[data-s=objects] .row").count() == rows
             mt.locator("input").focus(); page.keyboard.press("Space"); page.wait_for_timeout(200)
-            assert mt.evaluate("m => m.hasAttribute('checked')") and sc.evaluate("s => s.hasAttribute('all')")
+            assert mt.evaluate("m => m.hasAttribute('checked')")
             page.keyboard.press("Space"); page.wait_for_timeout(200)
 
             # 4 · the current camera: a 6 px LED in the pink, flat, where the «card» pill stood

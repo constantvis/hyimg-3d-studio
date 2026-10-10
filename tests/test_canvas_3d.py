@@ -153,7 +153,7 @@ def test_scene_card_editor_snapshot_and_agent_changes(hy):
         errors = []; page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{port}/canvas.html")
         page.wait_for_function("() => typeof PLGST !== 'undefined' && PLGST.some(p => p.name === '3d' && p.ok)", timeout=20000)
-        page.click("button[title^='3D-сцена']")
+        page.click("#bplus"); page.click("#bplusm [title^='3D-сцена']")
         page.wait_for_function("() => Object.values(board.items).some(i => i.type === 'model3d' && i.scene)")
         card = page.evaluate("() => Object.entries(board.items).find(([k, i]) => i.type === 'model3d')")
         cid, it = card
@@ -335,7 +335,7 @@ def test_library_folds_while_the_editor_is_open(hy):
         cv = page.frame_locator("#cvFrame")
         frame = next(f for f in page.frames if "/canvas" in f.url)
         frame.wait_for_function("() => typeof PLGST !== 'undefined' && PLGST.some(p => p.name === '3d' && p.ok)", timeout=20000)
-        cv.locator("button[title^='3D-сцена']").click()
+        cv.locator("#bplus").click(); cv.locator("#bplusm [title^='3D-сцена']").click()
         frame.wait_for_function("() => { const i = document.querySelector('.plg[data-type=model3d] img.m3'); return i && i.src.startsWith('data:image') }", timeout=30000)
         cv.locator(".plg[data-type=model3d]").dblclick(position=CORNER)
         page.wait_for_function("() => document.body.classList.contains('cv-only')", timeout=15000)
@@ -364,7 +364,7 @@ def test_card_frame_changes_like_a_picture_crop(hy):
           window.__m3on = () => { const c = document.querySelector('canvas.m3live'); return L.filter(x => x.el === c && !(x.o && x.o.signal && x.o.signal.aborted)).length; }; })()""")
         page.goto(f"http://127.0.0.1:{port}/canvas.html")
         page.wait_for_function("() => typeof PLGST !== 'undefined' && PLGST.some(p => p.name === '3d' && p.ok)", timeout=20000)
-        page.click("button[title^='3D-сцена']")
+        page.click("#bplus"); page.click("#bplusm [title^='3D-сцена']")
         page.wait_for_function("() => Object.values(board.items).some(i => i.type === 'model3d' && i.scene)")
         cid, it = page.evaluate("() => Object.entries(board.items).find(([k, i]) => i.type === 'model3d')")
         scene = lib / it["scene"]
@@ -674,9 +674,10 @@ def test_the_plugin_speaks_english_by_default(hy):
         page.wait_for_function("() => typeof PLGST !== 'undefined' && PLGST.some(p => p.name === '3d' && p.ok)", timeout=20000)
         assert page.evaluate("() => HY.lang") == "en"
         page.evaluate("() => { window.__notes = []; const c = window.commit; window.commit = (b, n) => { if (n) __notes.push(n); return c(b, n); }; }")
-        tip = page.locator("#dock button[title^='3D scene']").get_attribute("title")
+        page.click("#bplus")   # the dock's «+» › 3D scene (a button of its own until 2026-10-10)
+        tip = page.locator("#bplusm [title^='3D scene']").get_attribute("title")
         assert not cyr.search(tip), tip
-        page.click("#dock button[title^='3D scene']")
+        page.click("#bplusm [title^='3D scene']")
         page.wait_for_function("() => Object.values(board.items).some(i => i.type === 'model3d' && i.scene)")
         cid, it = page.evaluate("() => Object.entries(board.items).find(([k, i]) => i.type === 'model3d')")
         doc = wait_file(lib / it["scene"], lambda d: len(d["objects"]) == 2)
@@ -686,7 +687,7 @@ def test_the_plugin_speaks_english_by_default(hy):
         assert not cyr.search(page.evaluate(texts, ".plg[data-type=model3d]"))
         page.evaluate(f"() => {{ sel = new Set([{json.dumps(cid)}]); render(); }}"); page.wait_for_timeout(300)
         page.evaluate(f"() => {{ sel = new Set([{json.dumps(cid)}]); render(); }}"); page.wait_for_timeout(300)   # the info card reads the scene once
-        info = page.locator("#iN").inner_text() + " " + page.locator("#iM").inner_text() + " " + page.locator("#iP").inner_text()
+        info = page.locator("#iN").inner_text() + " " + page.locator("#iM").inner_text() + " " + page.locator("#iNotes").inner_text()   # the body: Hyimg's spec sheet (2026-10-10)
         assert "3D scene" in info and "2 objects, 2 lights, 1 camera" in info and not cyr.search(info), info
         # the editor: the scene's panel, then an object, a light and the camera
         page.dblclick(".plg[data-type=model3d]", position=CORNER); page.wait_for_selector(".m3ui .m3l .row"); go_on(page)

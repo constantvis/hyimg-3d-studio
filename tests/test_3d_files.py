@@ -169,7 +169,7 @@ def library_closed(page):
 
 
 def new_card(frame):
-    frame.click("button[title^='3D scene']")
+    frame.click("#bplus"); frame.click("#bplusm [title^='3D scene']")   # the dock's «+» › 3D scene (a button of its own until 2026-10-10)
     frame.wait_for_selector(".plg[data-type=model3d] .e3 .e3-b", timeout=30000)
     return frame.evaluate("() => Object.keys(board.items).find(k => board.items[k].type === 'model3d' && board.items[k].empty)")
 
@@ -443,7 +443,7 @@ def test_the_card_outside_the_app_has_no_library_button_and_the_words_follow_the
         browser = p.chromium.launch(args=GL["chromium"]); page = browser.new_page(viewport={"width": 1200, "height": 800})
         page.goto(f"http://127.0.0.1:{port}/canvas.html")
         page.wait_for_function("() => typeof PLGST !== 'undefined' && PLGST.some(p => p.name === '3d' && p.ok)", timeout=30000)
-        page.click("button[title^='3D scene']"); page.wait_for_selector(".e3 .e3-b", timeout=30000)
+        page.click("#bplus"); page.click("#bplusm [title^='3D scene']"); page.wait_for_selector(".e3 .e3-b", timeout=30000)
         assert page.locator(".e3 .e3-b").all_inner_texts() == ["Open file…"]
         browser.close()
 
@@ -453,7 +453,7 @@ def test_an_empty_card_speaks_russian_when_the_app_does(files):
     port, lib = files
     with sync_playwright() as p:
         browser, page, frame, errors = open_board(p, "chromium", port)
-        frame.click("button[title^='3D-сцена']"); frame.wait_for_selector(".e3 .e3-b", timeout=30000)
+        frame.click("#bplus"); frame.click("#bplusm [title^='3D-сцена']"); frame.wait_for_selector(".e3 .e3-b", timeout=30000)
         assert frame.locator(".e3 .e3-b").all_inner_texts() == ["Открыть файл…", "Медиатека"]
         assert "3D-файл" in frame.locator(".e3 .e3-fm").inner_text()
         assert not errors, errors
