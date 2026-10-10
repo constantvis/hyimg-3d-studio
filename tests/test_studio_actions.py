@@ -39,7 +39,7 @@ def test_3d_studio_actions_top_right(tmp_path):
                                  "return [b.getAttribute('variant'), c.backgroundColor, c.color, b.querySelector('kbd').textContent]; }")
             assert save == ["accent", pink, "rgb(255, 255, 255)", "⌘↵"], save
             cancel = page.evaluate("() => { const b = document.querySelector('.m3ui hy-studio-actions [data-a=cancel]'); return [getComputedStyle(b).backgroundColor, b.title]; }")
-            assert cancel[0] != pink and cancel[1].endswith("Esc"), cancel
+            assert cancel[0] != pink and not cancel[1].endswith("Esc"), cancel   # the last Esc keeps the work (owner decision 2026-10-10, S-27)
             # Save from the top closes the studio and takes the actions away
             page.click(".m3ui hy-studio-actions [data-a=save]")
             page.wait_for_function("() => !document.querySelector('.plg-live') && !document.querySelector('hy-studio-actions')", timeout=20000)

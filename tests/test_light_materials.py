@@ -154,8 +154,8 @@ def test_materials_variants_light_and_ab(hy, engine):
         # a light's colour temperature
         frame.click('.ms[data-s="lights"] .row[data-u] .nm')
         frame.wait_for_function("() => [...document.querySelectorAll('.m3r .hy-slider-l')].some(x => x.textContent.replace(/\\s+/g, ' ').trim() === 'Temperature, K')", timeout=10000)
-        frame.evaluate("""() => { const row = [...document.querySelectorAll('.m3r .dk *')].find(e => e.children.length && e.textContent.replace(/\\s+/g, ' ').trim().startsWith('By temperature')
-          && e.querySelector('.dialkit-segmented-button')); [...row.querySelectorAll('.dialkit-segmented-button')].find(b => b.textContent.trim() === 'On').click(); }""")
+        frame.evaluate("""() => [...document.querySelectorAll('.m3r .dk .dialkit-minitoggle-row')].find(r => r.textContent.trim().startsWith('By temperature'))
+          .querySelector('hy-minitoggle').input.click()""")   # an on or off is round 15's mini toggle (DialKit patch mountToggle)
         set_slider(frame, "Temperature, K", 3200); frame.wait_for_timeout(400)
         assert any(l.get("temp") == 3200 for l in frame.evaluate(LIVE_DOC, rel)["lights"])
         assert "Blender renders the card with these lamps" in frame.locator(".m3r .inf").inner_text()
@@ -164,7 +164,7 @@ def test_materials_variants_light_and_ab(hy, engine):
         raw = scene.read_text()
         frame.click("hy-studio-actions [data-a=cancel]")
         frame.wait_for_selector("#hyConfirm.on", timeout=5000); frame.wait_for_timeout(300)
-        frame.click("#hyConfirm button.ok"); frame.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
+        frame.click("#hyConfirm [data-a=ok]"); frame.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)   # Discard
         frame.wait_for_timeout(600)
         assert scene.read_text() == raw and "variant" not in frame.evaluate(f"() => board.items[{json.dumps(cid)}]")
         # again, and «Save» writes the variant into scene.json

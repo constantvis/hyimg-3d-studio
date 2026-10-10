@@ -1,6 +1,6 @@
 """3D Studio wears its colour (owner 2026-10-09, «конечно» to «3D Studio и Dev Studio пока остаются синими. Дать им их цвета?»), as Image
 Studio wears its purple (hyimg-image-studio 6e04f1a, tests/test_studio_dock.py there): inside the studio the chosen 3D segment of the dock's
-switch, a checked box, the picked layer row, the tool in hand and the primary Save are in 3D Studio's pink (--pink), Save with white words,
+switch, a switch that is on, the picked layer row, the tool in hand and the primary Save are in 3D Studio's pink (--pink), Save with white words,
 Cancel as it was; back on the board the Board segment is the selection's blue again. Chromium, dark, the classic look (where the
 selection is blue).
 """
@@ -41,10 +41,14 @@ def test_3d_studio_wears_its_colour(tmp_path):
             page.wait_for_timeout(1200); go_on(page)
             # the switch's chosen segment: 3D Studio's pink
             settle(page, ["3d", pink])
-            # a checked box (the layer list's «all nodes»), on
-            page.click(".m3l .opts input[data-raw]"); page.wait_for_timeout(200)
-            assert page.evaluate("() => { const i = document.querySelector('.m3l .opts input[data-raw]'); return [i.checked, getComputedStyle(i).accentColor]; }") == [True, pink]
-            page.click(".m3l .opts input[data-raw]"); page.wait_for_timeout(200)
+            # a switch that is on (the layer list's «All nodes», round 15's mini toggle): its track in the pink once it has eased
+            page.click(".m3l hy-minitoggle[data-raw]")
+            on = ("() => { const m = document.querySelector('.m3l hy-minitoggle[data-raw]'); "
+                  "return [m.input.checked, getComputedStyle(m, '::before').backgroundColor]; }")
+            try: page.wait_for_function(f"(p) => JSON.stringify(({on})()) === JSON.stringify([true, p])", arg=pink, timeout=3000)
+            except Exception: pass
+            assert page.evaluate(on) == [True, pink]
+            page.click(".m3l hy-minitoggle[data-raw]"); page.wait_for_timeout(200)
             # the picked layer row: a fill and a line of the pink, the app's selected row
             page.click(".m3l .row[data-u]"); page.wait_for_selector(".m3l .row.sel", timeout=5000)
             row = page.evaluate("() => getComputedStyle(document.querySelector('.m3l .row.sel')).backgroundColor")

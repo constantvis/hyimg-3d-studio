@@ -304,7 +304,7 @@ class Bridge:
             return
         exe = blender_exe(model)
         if not exe:
-            raise RuntimeError("Blender не найден в /Applications")
+            raise RuntimeError("Blender not found in /Applications")   # the page says it in the board's language (blender.js tidyErr)
         os.makedirs(self.cache, exist_ok=True)
         port_file = os.path.join(self.cache, "port.json")
         try:
@@ -530,7 +530,7 @@ def _run(b, j, req):
         s.close()
         if j["state"] == "rendering":   # the connection ended without a last word: the process went
             j["state"] = "cancelled" if j.get("killed") else "error"
-            j["error"] = j["error"] or "Blender закрылся"
+            j["error"] = j["error"] or "Blender closed"
         if j["state"] == "saving":
             j["saved"] = save_final(j)
             j["state"] = "done"

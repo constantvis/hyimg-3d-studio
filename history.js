@@ -18,9 +18,15 @@ export function remember(L, what) {
   if (what === "start") return record(L, what);
   L.hmT = setTimeout(() => { L.hmT = 0; record(L, what); }, 250);
 }
+// a snapshot's pictures beside the card (P4 S-44): a step of the Studio, so ⌘Z takes them off the board and ⇧⌘Z puts them back; they are
+// what the person made, so Cancel leaves them (they are not the session's L.made)
+export function shotTaken(L, ids) {
+  L.shotItems = L.shotItems || {}; for (const id of ids) if (HY.board.items[id]) L.shotItems[id] = clone(HY.board.items[id]);
+  L.shots = [...(L.shots || []), ...ids.filter(id => HY.board.items[id])]; remember(L, "shot");
+}
 function record(L, what) {
   if (getLive() !== L) return;
-  const s = JSON.stringify({ doc: noUi(L.e.doc), card: cardOf(L) }); if (L.hist[L.hi] && L.hist[L.hi].s === s) return;
+  const s = JSON.stringify({ doc: noUi(L.e.doc), card: cardOf(L), shots: L.shots || [] }); if (L.hist[L.hi] && L.hist[L.hi].s === s) return;
   const prev = L.hist[L.hi], lab = prev ? stepLabel(JSON.parse(prev.s), JSON.parse(s), what) : { label: t("Opened"), ico: "model" };
   L.hist = L.hist.slice(0, L.hi + 1); L.hist.push({ s, what, ...lab }); if (L.hist.length > 80) L.hist.shift(); L.hi = L.hist.length - 1;
   undoState(L);
@@ -30,23 +36,33 @@ function record(L, what) {
 function stepLabel(a, b, what) {
   const same = (x, y) => JSON.stringify(x) === JSON.stringify(y), byId = l => new Map((l || []).map(x => [x.id, x]));
   const A = a.doc, B = b.doc, r = v => Math.round(v * 10) / 10;
-  for (const [k, word, ico] of [["cameras", "camera", "camera"], ["lights", "light", "light"], ["objects", "object", "model"]]) {
+  if ((b.shots || []).length > (a.shots || []).length) return { label: t("Snapshot, masks and depth"), ico: "camera" };
+  // a camera turned by a hair (the orbit's float noise on a step that added, deleted or reset something) is no change of its own (P4 S-43:
+  // every such step was «Camera: turned»)
+  const fine = (x, y) => JSON.stringify(x, (k, v) => typeof v === "number" ? Math.round(v * 1e4) / 1e4 : v) === JSON.stringify(y, (k, v) => typeof v === "number" ? Math.round(v * 1e4) / 1e4 : v);
+  const KINDS = [["cameras", "camera", "camera"], ["lights", "light", "light"], ["objects", "object", "model"]];
+  for (const [k, , ico] of KINDS) {   // what came and what went first, whatever else moved with it
     const ma = byId(A[k]), mb = byId(B[k]);
     for (const [id, x] of mb) if (!ma.has(id)) return { label: k === "cameras" ? t("New camera {name}", { name: x.name || id }) : t("{name} added", { name: x.name || id }), ico };
     for (const [id, x] of ma) if (!mb.has(id)) return { label: k === "cameras" ? t("Camera {name} deleted", { name: x.name || id }) : t("{name} deleted", { name: x.name || id }), ico };
-    for (const [id, y] of mb) {
-      const x = ma.get(id); if (same(x, y)) continue;
+  }
+  if (what === "reset") return { label: t("Settings reset"), ico: "model" };
+  for (const [k, , ico] of KINDS) {
+    const ma = byId(A[k]);
+    for (const [id, y] of byId(B[k])) {
+      const x = ma.get(id); if (fine(x, y)) continue;
       const who = k === "lights" ? t("Light · {name}", { name: y.name || id }) : (y.name || id);
+      if (x.name !== y.name) return { label: t("Renamed: {a} → {b}", { a: x.name || id, b: y.name || id }), ico };
       if (!!x.hidden !== !!y.hidden) return { label: y.hidden ? t("{who} hidden", { who }) : t("{who} shown", { who }), ico: y.hidden ? "off" : "eye" };
       if (!!x.locked !== !!y.locked) return { label: y.locked ? t("{who} locked", { who }) : t("{who} unlocked", { who }), ico: y.locked ? "lock" : "unlock" };
       if (k === "cameras") {
-        const d = Object.keys(y).filter(f => !same(x[f], y[f]));
+        const d = Object.keys(y).filter(f => !fine(x[f], y[f]));
         if (d.length === 1 && d[0] === "lens") return { label: t("Lens {a} → {b}", { a: r(x.lens), b: r(y.lens) }), ico };
         if (what === "original") return { label: t("Camera: as in its picture"), ico };
         if (d.every(f => f === "loc" || f === "rot")) return { label: t("Camera: turned"), ico };
         return { label: t("Camera {name} · changed", { name: y.name || id }), ico };
       }
-      if (["loc", "rot", "scale"].some(f => !same(x[f], y[f]))) return { label: t("{who} · moved", { who }), ico: what === "pull" ? "smart" : "translate" };
+      if (["loc", "rot", "scale"].some(f => !fine(x[f], y[f]))) return { label: t("{who} · moved", { who }), ico: what === "pull" ? "smart" : "translate" };
       return { label: t("{who} · changed", { who }), ico };
     }
   }
@@ -54,6 +70,7 @@ function stepLabel(a, b, what) {
     const c = (B.cameras || []).find(x => x.id === b.card.camera); return { label: t("Card camera: {name}", { name: c ? c.name : b.card.camera }), ico: "camera" };
   }
   if (!same(a.card.bg, b.card.bg)) return { label: t("Card background"), ico: "model" };
+  if (!same(a.card.res, b.card.res)) return { label: Array.isArray(b.card.res) ? t("Output size {w} × {h}", { w: b.card.res[0], h: b.card.res[1] }) : t("Output size"), ico: "model" };
   if (["w", "h", "lock"].some(f => !same(a.card[f], b.card[f]))) return { label: t("Card frame"), ico: "model" };
   const vs = variantStep(A, B, a.card, b.card, t); if (vs) return vs;   // a variant of light and materials, the card's choice, A/B
   if (!same(A.world, B.world)) return { label: t("World light"), ico: "light" };
@@ -69,6 +86,12 @@ export async function jumpTo(L, i) {
   L.e.doc = st.doc; if (ui) L.e.doc.ui = ui; else delete L.e.doc.ui;   // the list's colours are not a step of the scene
   if (JSON.stringify(cardOf(L)) !== JSON.stringify(st.card)) {   // the card's camera, background or frame: on the board (one step of the session in the end)
     const it = HY.board.items[L.id], before = HY.snap(); for (const f of itemFields) { if (st.card[f] === undefined) delete it[f]; else it[f] = clone(st.card[f]); } HY.commit(before);
+  }
+  const want = st.shots || [], have = L.shots || [];   // a snapshot's pictures taken back or put back (S-44)
+  if (JSON.stringify(want) !== JSON.stringify(have)) {
+    const before = HY.snap(); for (const id of have) if (!want.includes(id)) delete HY.board.items[id];
+    for (const id of want) if (!HY.board.items[id] && L.shotItems && L.shotItems[id]) HY.board.items[id] = clone(L.shotItems[id]);
+    L.shots = [...want]; HY.commit(before, want.length < have.length ? t("3D: snapshot taken back") : t("3D: snapshot, masks and depth beside it"));
   }
   await L.view.apply(L.e.doc); L.reload(); undoState(L);   // the pick stays when it is still in the scene (L.reload)
 }

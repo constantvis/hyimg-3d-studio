@@ -53,7 +53,7 @@ export function variantStep(A, B, ca, cb, t) {
 const CSS = `
   .m3ui .row hy-swatch { display: inline-block; flex: none; width: 11px; height: 11px; margin: 0 7px 0 2px; border: 0; border-radius: 50%; background: var(--hy-sw);
     box-shadow: inset 0 0 0 1px var(--line); pointer-events: none; }   /* a dot of the material's colour, also where ui/hy is not loaded */
-  .m3ui .row.m3ov .nm::after { content: ""; display: inline-block; width: 5px; height: 5px; margin-left: 6px; border-radius: 50%; background: var(--sel); vertical-align: middle; }
+  .m3ui .row.m3ov .nm > .hy-dot { margin-left: 6px; }   /* changed in this variant: round 15's change dot (ui/hy/micro.css) */
   .m3ui .row[data-lm] .nm small, .m3ui .row[data-mat] .nm { overflow: hidden; text-overflow: ellipsis; }
   .tidy.plgedit .m3var .v { max-width: 150px; } .tidy.plgedit .m3abto .v { max-width: 120px; }
   .tidy.plgedit :is(.m3var, .m3abto) .v { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

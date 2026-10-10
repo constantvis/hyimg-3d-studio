@@ -236,7 +236,10 @@ export class SceneView {
       if (!u || u.key !== key) {
         let obj;
         try { obj = await this.makeObject(o, glbUrl); }
-        catch (e) { console.warn("3d: object not loaded", o.name, e); obj = new THREE.Group(); obj.userData.broken = String(e.message || e); }
+        catch (e) {   // the card says so (canvas.js, P4 S-46: a missing model file said nothing)
+          console.warn("3d: object not loaded", o.name, e); obj = new THREE.Group(); obj.userData.broken = String(e.message || e);
+          const s = o.src || {}; globalThis.dispatchEvent?.(new CustomEvent("hy3d-broken", { detail: { id: o.id, name: o.name, path: s.type === "model" ? `${LIB}/${s.model}` : s.path || "" } }));
+        }
         if (u) this.scene.remove(u.obj);
         const unit = new THREE.Group(); unit.add(obj); unit.name = o.name; unit.userData.id = o.id; unit.userData.kind = "object";
         unit.traverse(m => {

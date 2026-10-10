@@ -71,11 +71,12 @@ def test_3d_studio_has_no_board_blue(tmp_path):
             assert note == pink, note
             no_blue(page, "the studio with a picked row, the tool in hand and a note")
 
-            # something changed (the card moved on the board), Cancel: «Close without saving?», Discard in the pink, white words
+            # something changed (the card moved on the board), Cancel: «Close without saving?», its primary answer Save in the pink, white
+            # words (P4 S-03: Save is the question's primary, Discard stands apart)
             page.evaluate("() => { board.items.c.x += 10; }")
-            page.click("[data-a=cancel]"); page.wait_for_selector("#hyConfirm.on [data-a=ok]", timeout=5000); page.wait_for_timeout(350)
-            assert page.evaluate(BTN, "#hyConfirm [data-a=ok]") == [pink, "rgb(255, 255, 255)"], page.evaluate(BTN, "#hyConfirm [data-a=ok]")
-            assert page.evaluate(BTN, "#hyConfirm [data-a=no]")[0] != pink
+            page.click("[data-a=cancel]"); page.wait_for_selector("#hyConfirm.on [data-a=save]", timeout=5000); page.wait_for_timeout(350)
+            assert page.evaluate(BTN, "#hyConfirm [data-a=save]") == [pink, "rgb(255, 255, 255)"], page.evaluate(BTN, "#hyConfirm [data-a=save]")
+            assert page.evaluate(BTN, "#hyConfirm [data-a=no]")[0] != pink and page.evaluate(BTN, "#hyConfirm [data-a=ok]")[0] != pink
             no_blue(page, "the question before closing")
             page.click("#hyConfirm [data-a=ok]"); page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
 

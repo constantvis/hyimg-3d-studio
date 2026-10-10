@@ -21,7 +21,7 @@ A plugin for [Hyimg](https://github.com/constantvis/Hyimg), the local Figma + Li
 cd hyimg && ./scripts/install_plugins.sh --3d
 ```
 
-Or by hand: clone this repository and run `ln -s <path to hyimg-3d-studio> ~/Library/Application\ Support/Hyimg/plugins/3d`, then View › Restart server (⇧⌘R) in Hyimg. There is no build step; three.js is in `vendor/`. Blender (tested on 5.2) is only needed for the bridge. FreeCAD (tested on 1.1.1, found in /Applications) is only needed for STEP and IGES files; nothing is installed for you.
+Or by hand: clone this repository and run `ln -s <path to hyimg-3d-studio> ~/Library/Application\ Support/Hyimg/plugins/3d`, then View › Restart Server in Hyimg. There is no build step; three.js is in `vendor/`. Blender (tested on 5.2) is only needed for the bridge. FreeCAD (tested on 1.1.1, found in /Applications) is only needed for STEP and IGES files; nothing is installed for you.
 
 **For agents:** don't install the plugin silently. Ask the person whether they want 3D objects (3D scenes as cards on the board, with a bridge to Blender), and install only after a yes.
 

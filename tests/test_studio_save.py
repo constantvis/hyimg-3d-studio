@@ -68,14 +68,14 @@ def test_cancel_leaves_the_scene_the_card_and_the_board(tmp_path, engine):
             assert scene.read_bytes() == raw0, "nothing written while the studio is open"
             # changes: Cancel asks first, the image studio's dialog over everything; a newer note does not cover it, Esc keeps the studio
             page.click("hy-studio-actions [data-a=cancel]"); page.wait_for_selector("#hyConfirm.on", timeout=5000)
-            assert page.locator("#hyConfirm .hc-t").inner_text().strip() == "Закрыть без сохранения?"
+            assert page.locator("#hyConfirm .hc-t").inner_text().strip() == "Сохранить изменения в «a»?"   # Hyimg's one question (S-26)
             page.evaluate("() => { HY.toast('Новая заметка поверх', 'info'); HY.toast('Еще одна', 'info'); }"); page.wait_for_timeout(400)
-            b = page.locator("#hyConfirm button.ok").bounding_box()
+            b = page.locator("#hyConfirm [data-a=ok]").bounding_box()
             assert page.evaluate("([x, y]) => !!document.elementFromPoint(x, y).closest('#hyConfirm')", [b["x"] + b["width"] / 2, b["y"] + b["height"] / 2])
             page.keyboard.press("Escape"); page.wait_for_function("() => !document.querySelector('#hyConfirm')", timeout=5000)
             assert page.evaluate("() => !!document.querySelector('.plg-live')"), "Esc on the question keeps the studio"
-            page.keyboard.press("Escape"); page.wait_for_selector("#hyConfirm.on", timeout=5000)   # Esc in the studio asks the same
-            page.wait_for_timeout(400); b = page.locator("#hyConfirm button.ok").bounding_box()
+            page.click("hy-studio-actions [data-a=cancel]"); page.wait_for_selector("#hyConfirm.on", timeout=5000)   # Cancel again (Esc keeps the work, S-27)
+            page.wait_for_timeout(400); b = page.locator("#hyConfirm [data-a=ok]").bounding_box()
             page.mouse.click(b["x"] + b["width"] / 2, b["y"] + b["height"] / 2)   # «Сбросить»
             page.wait_for_function("() => !document.querySelector('.plg-live')", timeout=20000)
             page.wait_for_timeout(800)

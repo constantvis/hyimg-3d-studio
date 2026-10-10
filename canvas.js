@@ -191,6 +191,7 @@ export function register(hy) {
     .plg-live img.m3bimg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; z-index: 1; }
     .plg-live .m3bst { position: absolute; left: calc(8px / var(--z)); bottom: calc(8px / var(--z)); z-index: 3; max-width: calc(100% - 16px / var(--z)); overflow: hidden; text-overflow: ellipsis;
       padding: calc(3px / var(--z)) calc(9px / var(--z)); border-radius: 999px; background: rgba(20,20,22,.72); color: #fff; font: 500 calc(11px / var(--z)) var(--sans); white-space: nowrap; pointer-events: none; }
+    .plg-live .m3bst > hy-led { width: calc(6px / var(--z)); height: calc(6px / var(--z)); margin: 0 calc(6px / var(--z)) calc(1px / var(--z)) 0; }   /* round 15's LED, at the card's zoom */
     /* the reset among the tools: a neutral round icon like them (owner 2026-10-06: red is only for deleting) */
     .bar .plgdock button:is(.m3reset, .m3ic) { width: 38px; padding: 0 !important; justify-content: center; } .m3t button:is(.m3reset, .m3ic) { width: 30px; }
     :root[data-ui="studio"] .bar .plgdock button:is(.m3reset, .m3ic) { width: 32px; }
@@ -291,7 +292,9 @@ export function register(hy) {
     .m3t:not(.plgdock) { transition: left var(--inset-ms, 0ms) cubic-bezier(.32, .72, 0, 1), right var(--inset-ms, 0ms) cubic-bezier(.32, .72, 0, 1); }
     /* the search is the library's «Find folder» (ui/look.css .hy-search: the same field, magnifier, height, radius and ground) */
     .m3l .lhd { display: flex; flex: none; padding-bottom: 6px; } .m3l .lhd .hy-search > input { color: var(--ink); }
-    .m3l .opts { display: flex; justify-content: flex-end; padding: 0 4px 2px; color: var(--dim); font-size: 11px; flex: none; } .m3l .opts label { display: flex; gap: 5px; align-items: center; } .m3l .opts input { margin: 0; accent-color: var(--sel, var(--pink)); }
+    /* round 15's micro UI (owner 2026-10-09): «All nodes» a mini toggle beside the search, the search's count the same switch (ui/hy) */
+    .m3l .lhd { align-items: center; gap: 4px; } .m3l .lhd .hy-search > hy-scope { position: absolute; right: 3px; }
+    .m3l .lhd .hy-search:has(> hy-scope:not([hidden])) > input { padding-right: 56px !important; }
     /* the sections Objects, Lights, Cameras (engine.js tree): a title that folds (the app's chevron, turned with the app's curve), the rows,
        the app's splitter between two (ui/split.js). One stack (sections.js): engine.js sets each section's rows in px, a fold glides along
        the app's curve (.tr.glide), a drag does not */
@@ -324,10 +327,13 @@ export function register(hy) {
     .m3l .row > .ic { color: var(--sub); margin-right: 7px; width: 15px; height: 15px; }
     .m3l .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .m3l .nm small { color: var(--dim); font-size: 10px; margin-left: 6px; }
     .m3l .cnt { color: var(--dim); font-size: 10px; font-variant-numeric: tabular-nums; margin-left: 4px; }
-    .m3l .tag { font-size: 9.5px; color: var(--pink); border: 1px solid color-mix(in srgb, var(--pink) 45%, transparent); border-radius: 4px; padding: 0 4px; margin-left: 4px; }
-    .m3l .acts { display: flex; margin-left: 2px; } .m3l .acts button { width: 20px; height: 20px; padding: 0; border: 0; background: none; color: var(--dim); display: grid; place-items: center; opacity: 0; }
-    .m3l .acts .ic { width: 13px; height: 13px; } .m3l .row:hover .acts button, .m3l .acts button.keep { opacity: 1; } .m3l .acts button:hover { color: var(--ink); }
-    .m3l .acts button[data-lock].keep { color: var(--sub); }   /* a locked padlock at the list's full contrast (owner 2026-10-07), as in the image studio's layers */
+    /* the current camera's LED and the rows' eye and lock shown on hover, a set one staying: round 15's hy-led and .hy-ri (ui/hy) */
+    /* round 16's scrub (owner 2026-10-10): a folder of X Y Z sliders is its title over three <hy-scrub> fields (the DialKit patch mountVec) */
+    .m3r .dk .dialkit-vec { display: flex; flex-direction: column; gap: 4px; padding: 4px 0 2px; }
+    .m3r .dk .dialkit-vec-title { padding: 0 2px; color: var(--sub); font: 500 12px var(--sans); }
+    .m3r .dk .dialkit-vec-row { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px; } .m3r .dk .dialkit-vec-row > hy-scrub { width: auto; }
+    .m3l .row > .nm:has(+ hy-led) { flex: 0 1 auto; } .m3l .row > hy-led { margin: 0 auto 0 6px; }
+    .m3l .acts { display: flex; margin-left: 2px; } .m3l .acts .ic { width: 13px; height: 13px; }
     /* a thing's eye and lock as its parts inherit them (owner 2026-10-07): the row dimmed, the parent's state faint beside the row's own */
     .m3l .row.ghid .nm, .m3l .row.ghid > .ic { opacity: .55; } .m3l .acts button.inh, .m3l .row:hover .acts button.inh { opacity: .42; }
     .m3l .acts .inhlk { width: 20px; height: 20px; display: grid; place-items: center; color: var(--dim); opacity: .42; }
@@ -354,11 +360,9 @@ export function register(hy) {
     .m3ui .dialkit-root .dialkit-segmented-pill { border-radius: calc(var(--m3-r) - 2px); }
     .m3r .dialkit-panel-toolbar, .m3r .dialkit-panel-section-toolbar, .m3r .dialkit-panel-header { display: none; }
     .m3r .dk .dialkit-root :is(.dialkit-slider-label, .dialkit-toggle-label, .dialkit-button, .dialkit-select-label, .dialkit-text-label, .dialkit-color-label) { font-size: 12px; }
-    /* the active camera's row (engine.js markCams): a dot where a tree row has its chevron, the name and icon at full contrast, the chip
-       filled; the selection stays the list's own (.sel) */
-    .m3l .row.act > .chev { position: relative; } .m3l .row.act > .chev::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--pink); }
+    /* the active camera's row (engine.js markCams): the name and icon at full contrast and round 15's LED after the name (owner 2026-10-09:
+       one LED where a dot by the chevron and the «card» chip were); the selection stays the list's own (.sel) */
     .m3l .row.act > .nm { color: var(--ink); font-weight: 600; } .m3l .row.act:not(.nc) > .ic { color: var(--ink); }
-    .m3l .row.act .tag { background: color-mix(in srgb, var(--pink) 16%, transparent); }
     /* a control that does not apply to this camera (engine.js greyCtl): greyed in its place, its reason in its tooltip */
     .m3r .dk .m3na { opacity: .4; cursor: default; } .m3r .dk .m3na * { cursor: default !important; }
     /* the card's output size under Frame (engine.js sizeRow): W × H in the rows' fields with the app's W ↔ H link between them (look.css .hy-link,
@@ -436,11 +440,18 @@ export function register(hy) {
   // color: the chosen segment in 3D Studio's pink, not the board's blue (owner 2026-10-09: «конечно», to giving 3D Studio its colour)
   if (hy.mode) hy.mode("3d", { label: t("3D"), name: t("3D Studio"), order: 30, icon: CUBE.replace('width="18" height="18"', 'width="16" height="16"'), color: "var(--pink)",
     title: t("3D Studio for the selected 3D card"), hint: t("Select a 3D card or enter one: 3D Studio opens for it"),
+    hintStudio: t("Open a 3D card to use 3D Studio"),   // the tooltip while another Studio is open (owner decision 2026-10-10)
     isOpen: () => !!(E && E.isLive()),
+    unsaved: () => !!(E && E.liveUnsaved && E.liveUnsaved()),
     target: ids => ids.length === 1 && HY.board.items[ids[0]] && HY.board.items[ids[0]].type === TYPE ? ids[0] : null,
     enter: id => studio(id),
-    leave() { if (!E || !E.isLive()) return; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); E.onKey({ key: "Enter", metaKey: true, preventDefault() {}, stopPropagation() {} }); }   // the dock's Board saves, as ⌘↵,
+    // the dock's Board, another Studio's segment, a page switch: Save, waited for (owner decision 2026-10-10, P4 S-27 A, S-31)
+    leave() { if (!E || !E.isLive()) return; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); return E.stopLive(true); },
+    // the Hint bar as it opens (Hyimg ui/modes.js, P4 S-29): V, C, these, Esc / ⌘↵ Save; the camera flies the card between the panels (S-61)
+    primary: "Save", hints: [{ id: "orbit", keys: ["alt", "space"], t: "3d::Orbit" }, { id: "move", keys: ["g"], t: "3d::Move" }],
   });
+  // an object whose file is missing or unreadable (scene.js): one note a file, not one a frame (P4 S-46)
+  addEventListener("hy3d-broken", e => { const d = e.detail || {}; HY.toast(t("3D: «{name}» not loaded: {path}", { name: d.name || d.id, path: d.path || "?" }), "error", { key: "m3broken:" + d.path }); });
   // the media library's 3D filter picked a file (review/v2.html): into the card that asked for it, or into a new one
   addEventListener("message", async e => {
     const d = e.data; if (e.origin !== location.origin || !d || d.type !== "model3dPick" || typeof d.path !== "string") return;

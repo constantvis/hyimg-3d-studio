@@ -24,29 +24,84 @@ export function changedSince(L) {
   return stateKey(noUi(tidy(clone(L.e.doc)))) !== stateKey(noUi(tidy(clone(L.sceneOpen)))) || JSON.stringify(cardOf(L)) !== JSON.stringify(cardOfItem(L.start.item))
     || JSON.stringify([o.items, o.groups]) !== JSON.stringify([HY.board.items, HY.board.groups]);
 }
-// «Cancel» or Esc: closes at once with nothing changed; else asks first, as the image studio does (owner 2026-10-07)
+// «Cancel»: closes at once with nothing changed; else asks Hyimg's one question before unsaved work is left (ui/confirm.js hyLeave, owner
+// decision 2026-10-10, P4 S-26 A): «Keep editing» (the focus, ↵, Esc), «Discard», «Save» (primary, ⌘↵). Esc no longer comes here: the last
+// Esc keeps the work, as the Board segment does (S-27 A)
 export function askCancel(L) {
   if (getLive() !== L) return;
   if (!changedSince(L)) return stop(false);
-  // the image studio's question, as a dialog over everything that only its answer closes (owner 2026-10-07: a note hid behind a newer one)
-  const act = keep => () => { if (getLive() === L) stop(keep); };
-  import("/ui/confirm.js").then(m => m.hyConfirm({ title: t("Close without saving?"), note: t("The changes made since the last save will be lost."),
-    ok: t("Discard"), cancel: t("Cancel"), onOk: act(false) })).catch(() => {   // a Hyimg without ui/confirm.js: the note with its buttons
+  const act = keep => () => { if (getLive() === L) stop(keep); }, name = (L.path.match(/([^/]+)\/scene\.json$/) || [])[1] || t("3D scene");
+  import("/ui/confirm.js").then(m => m.hyLeave ? m.hyLeave({ name, discard: act(false), save: act(true) })
+    : m.hyConfirm({ title: t("Close without saving?"), note: t("The changes made since the last save will be lost."), ok: t("Discard"), cancel: t("Keep editing"), onOk: act(false),
+      save: { label: t("Save"), run: act(true) } })).catch(() => {   // a Hyimg without ui/confirm.js
     HY.toast(t("Close without saving?"), "info", { sticky: true, actions: [{ label: t("Discard"), fn: act(false) }, { label: t("Save"), fn: act(true) }] });
   });
 }
-// «Cancel»: nothing of the session stays (a Blender preview may have written the card's camera into the file: the file as it was)
+// the board as it was for the studio's own things (P4 S-01, S-22): the board now, the cards of this scene as at the opening (by id) and the
+// cards the session put beside it (L.made: a snapshot, a render, camera cards) gone. What others did meanwhile stays, and so do their steps
+export function openingBoard(L) {
+  const o = JSON.parse(L.before), b = JSON.parse(HY.snap()), mine = (id, x) => id === L.id || (x && x.type === "model3d" && x.scene === L.path);
+  for (const [id, x] of Object.entries(o.items)) if (mine(id, x)) b.items[id] = x;
+  for (const id of L.made || []) if (!o.items[id]) delete b.items[id];
+  for (const g of Object.values(b.groups || {})) if (Array.isArray(g.members)) g.members = g.members.filter(m => b.items[m] || b.groups[m]);
+  return b;
+}
+export const boardDiffers = (a, b) => JSON.stringify([a.items, a.groups]) !== JSON.stringify([b.items, b.groups]);
+// scene.json written by someone else while the studio was open (P4 S-02): an agent, hy.py, another window. The studio's own writes change
+// only the card's camera (a Blender preview, «Sync with the scene») or the list's colours (ui), so those do not count
+export function outside(L, raw) {
+  if (raw == null || raw === L.rawOpen) return false;
+  let d, o; try { d = JSON.parse(raw); o = L.rawOpen != null ? JSON.parse(L.rawOpen) : L.sceneOpen; } catch { return true; }
+  return ![L.start.item.camera, L.camId(), o.active_camera].filter(Boolean).some(cid => sharedKey(d, cid) === sharedKey(o, cid));
+}
+const readDisk = path => fetch(fileUrl(path) + `&t=${Date.now()}`, { cache: "no-store" }).then(r => r.ok ? r.text() : null).catch(() => null);
+// «Save» writes the scene and waits for it (P4 S-04): refused, the studio stays open, the scene's numbers as they were, one toast. Written
+// meanwhile by someone else (S-02), theirs is kept as a version beside it and the toast says where; mine is the scene from now on
+export async function writeScene(L) {
+  const e = L.e, d = e.doc, path = L.path, disk = await readDisk(path), theirs = outside(L, disk) ? JSON.parse(disk) : null;
+  const was = { rev: d.rev, by: d.by, t: d.t }; tidy(d);
+  d.rev = Math.max(d.rev || 0, (theirs && theirs.rev) || 0) + 1; d.by = "canvas"; d.t = new Date().toISOString().slice(0, 19).replace("T", " ");
+  const raw = JSON.stringify(d, null, 1);
+  try {
+    const r = await fetch(`/api/file?p=${encodeURIComponent(path)}`, { method: "POST", body: raw });
+    if (!r.ok) throw new Error((await r.text().catch(() => "")) || String(r.status));
+  } catch (err) {
+    for (const k of ["rev", "by", "t"]) { if (was[k] === undefined) delete d[k]; else d[k] = was[k]; }
+    HY.toast(t("Scene not saved: {e}", { e: err.message }), "error"); return false;
+  }
+  e.key = stateKey(d); e.raw = raw;
+  if (theirs) {
+    putVersion(path, theirs.rev || 0, disk);
+    HY.toast(t("The scene had changed on disk meanwhile: that version is kept as {path}", { path: versionOf(path, theirs.rev || 0) }), "info");
+  }
+  return true;
+}
+// the list's colours (ui.colors) are how the person finds things, not a change of the scene: written at once, kept by Cancel too (P4 S-20)
+export async function writeUi(L) {
+  const ui = clone(L.e.doc.ui), put = raw => { const x = JSON.parse(raw); if (ui) x.ui = ui; else delete x.ui; return JSON.stringify(x, null, 1); };
+  if (ui) L.sceneOpen.ui = clone(ui); else delete L.sceneOpen.ui;
+  if (L.rawOpen != null) L.rawOpen = put(L.rawOpen);
+  const disk = await readDisk(L.path); if (disk == null) return;
+  const raw = put(disk), r = await fetch(`/api/file?p=${encodeURIComponent(L.path)}`, { method: "POST", body: raw }).catch(() => null);
+  if (r && r.ok) { if (L.e.raw === disk) L.e.raw = raw; } else HY.toast(t("Scene not saved: {e}", { e: r ? await r.text() : "offline" }), "error");
+}
+// «Cancel»: nothing of the session stays (a Blender preview may have written the card's camera into the file: the file as it was), only
+// the studio's own things go back (S-01); a scene someone else wrote meanwhile stays as they wrote it (S-02)
 export function cancelled(L, lost) {
   const d = L.e.doc; for (const k of Object.keys(d)) delete d[k]; Object.assign(d, clone(L.sceneOpen));
   L.e.view.apply(d).catch(() => {});
-  if (HY.squash && L.mark >= 0) {
-    const o = JSON.parse(L.before); HY.squash(L.mark);
-    if (JSON.stringify([o.items, o.groups]) !== JSON.stringify([HY.board.items, HY.board.groups])) {   // back as it was, saved, no step
-      const n = HY.steps, b = HY.snap(); HY.board.items = o.items; HY.board.groups = o.groups; HY.commit(b); HY.squash(n);
-    } else HY.render();
+  if (HY.squash && L.mark >= 0) HY.squash(L.mark);
+  const b = openingBoard(L);
+  if (boardDiffers(b, JSON.parse(HY.snap()))) {   // back as it was, saved, no step
+    const n = HY.steps, s = HY.snap(); HY.board.items = b.items; HY.board.groups = b.groups; HY.commit(s); HY.squash(n);
   } else HY.render();
-  if (L.rawOpen != null) fetch(fileUrl(L.path) + `&t=${Date.now()}`, { cache: "no-store" }).then(r => r.ok ? r.text() : null).then(now => {
-    if (now != null && now !== L.rawOpen) return fetch(`/api/file?p=${encodeURIComponent(L.path)}`, { method: "POST", body: L.rawOpen }).then(() => { L.e.raw = L.rawOpen; });
+  if (L.rawOpen != null) readDisk(L.path).then(now => {
+    if (now == null || now === L.rawOpen) return;
+    if (outside(L, now)) {   // theirs stays, the scene in memory is theirs
+      const x = JSON.parse(now); for (const k of Object.keys(d)) delete d[k]; Object.assign(d, x); L.e.raw = now; L.e.key = stateKey(d);
+      return L.e.view.apply(d).then(() => HY.toast(t("The scene changed on disk meanwhile: it stays as written there")));
+    }
+    return fetch(`/api/file?p=${encodeURIComponent(L.path)}`, { method: "POST", body: L.rawOpen }).then(() => { L.e.raw = L.rawOpen; });
   }).catch(() => {});
   if (lost) HY.toast(t("Closed without saving"));
 }

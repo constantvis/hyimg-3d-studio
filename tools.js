@@ -14,7 +14,8 @@ export function tools(L, cvs, h) {
   const O = L.orbit, M = THREE.MOUSE, on = { signal: L.ac.signal }, cap = { capture: true, signal: L.ac.signal };
   O.mouseButtons = { LEFT: -1, MIDDLE: M.ROTATE, RIGHT: M.PAN };
   let space = false, g = null, said = 0;
-  const typing = e => e.target && e.target.closest && e.target.closest("input, textarea, [contenteditable=true]");
+  // Hyimg's one rule for keys while typing (its ui/typing.js); the old test when the core is older
+  const typing = e => (window.hyTyping ? window.hyTyping(e) : !!(e.target && e.target.closest && e.target.closest("input, textarea, [contenteditable=true]")));
   addEventListener("keydown", e => { if (e.code === "Space" && !typing(e)) space = true; }, cap);
   addEventListener("keyup", e => { if (e.code === "Space") space = false; }, cap);
   addEventListener("blur", () => { space = false; }, on);

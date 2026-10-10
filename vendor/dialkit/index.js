@@ -773,7 +773,7 @@ var DialStoreClass = class {
         } else if (isActionConfigValue(value)) {
           control = { type: "action", path, label: value.label || label };
         } else if (isSelectConfigValue(value)) {
-          control = { type: "select", path, label, options: value.options };
+          control = { type: "select", path, label, options: value.options, seg: !!value.seg };   // Hyimg patch: seg, micro segments (mountMicroSeg)
         } else if (isColorConfigValue(value)) {
           control = { type: "color", path, label };
         } else if (isImageConfigValue(value)) {
@@ -3026,18 +3026,59 @@ function mountSegmentedControl(host, initial) {
     }
   };
 }
-function mountToggle(host, initial) {
-  let props = initial;
-  const row = element4("div", "dialkit-labeled-control");
+function mountVec(host, { title, items }) {
+  // Hyimg patch (round 16's scrub, see the folder case of build): the title, then X Y Z as <hy-scrub> fields side by side; the value a field
+  // shows follows the store unless the field is being dragged or typed
+  const box = element4("div", "dialkit-vec");
+  box.append(element4("span", "dialkit-vec-title", title));
+  const row = element4("div", "dialkit-vec-row");
+  const dec = (st) => (st && st < 1 ? Math.min(3, Math.ceil(-Math.log10(st) - 1e-9)) : 0);
+  const fields = items.map((it) => {
+    const f = document.createElement("hy-scrub");
+    f.setAttribute("label", it.label); f.setAttribute("aria-label", `${title} ${it.label}`);
+    if (Number.isFinite(it.min)) f.setAttribute("min", String(it.min));
+    if (Number.isFinite(it.max)) f.setAttribute("max", String(it.max));
+    f.setAttribute("step", String(it.step || 1)); f.setAttribute("dec", String(dec(it.step)));
+    const round = (v) => { const st = it.step || 1; return +(Math.round(v / st) * st).toFixed(dec(st)); };
+    f.addEventListener("hy-input", (e) => it.change(round(e.detail.value)));
+    f.addEventListener("hy-change", (e) => it.change(round(e.detail.value)));
+    f.addEventListener("hy-cancel", (e) => it.change(round(e.detail.value)));
+    row.append(f);
+    return f;
+  });
+  box.append(row);
+  host.append(box);
+  function update() {
+    fields.forEach((f, i) => {
+      const v = items[i].value();
+      if (f.classList.contains("hy-scrubbing") || f.contains(document.activeElement) || !Number.isFinite(+v)) return;
+      if (f.getAttribute("value") !== String(v)) f.setAttribute("value", String(v));
+    });
+  }
+  update();
+  return { update, destroy() { box.remove(); } };
+}
+function mountMicroSeg(host, initial) {
+  // Hyimg patch (owner 2026-10-09 on round 15's r15-micro.html, control 3: «Все топ, все делай»): a choice of 2 to 4 short options marked
+  // { seg: true } is Hyimg's micro segments (review/ui/hy/segmented.js, <hy-segmented variant="micro">) in the row, not a dropdown
+  let props = initial, sig = "";
+  const row = element4("div", "dialkit-labeled-control dialkit-microseg-row");
   const label = element4("span", "dialkit-labeled-control-label");
-  row.append(label);
+  const seg = document.createElement("hy-segmented");
+  seg.setAttribute("variant", "micro");
+  seg.addEventListener("hy-change", (e) => props.onChange(e.detail.value));
+  row.append(label, seg);
   host.append(row);
-  const segmentProps = () => ({ options: [{ value: "off", label: "Off" }, { value: "on", label: "On" }], value: props.checked ? "on" : "off", onChange: (value) => props.onChange(value === "on") });
-  const segmented = mountSegmentedControl(row, segmentProps());
+  const opts = () => (props.options || []).map((o) => typeof o === "string" ? { value: o, label: o } : o);
   function render() {
     label.textContent = props.label;
-    appendShortcut(label, props.shortcut, props.shortcutActive, true);
-    segmented.update(segmentProps());
+    const list = opts(), next = JSON.stringify(list);
+    if (next !== sig) {
+      sig = next;
+      seg.replaceChildren(...list.map((o) => { const b = document.createElement("button"); b.type = "button"; b.value = String(o.value); b.textContent = o.label; return b; }));
+    }
+    seg.setAttribute("label", props.label);
+    seg.setAttribute("value", String(props.value));
   }
   render();
   return {
@@ -3046,7 +3087,33 @@ function mountToggle(host, initial) {
       render();
     },
     destroy() {
-      segmented.destroy();
+      row.remove();
+    }
+  };
+}
+function mountToggle(host, initial) {
+  // Hyimg patch (owner 2026-10-09 on round 15's r15-micro.html: «Все топ, все делай»; r15-3d.html: «Shadow only» and «Visible» as mini
+  // switches): an on or off is Hyimg's mini toggle (review/ui/hy/minitoggle.js, <hy-minitoggle>), no longer an Off | On choice 24 px tall
+  let props = initial;
+  const row = element4("div", "dialkit-labeled-control dialkit-minitoggle-row");
+  const label = element4("span", "dialkit-labeled-control-label");
+  const mini = document.createElement("hy-minitoggle");
+  mini.addEventListener("hy-change", (e) => props.onChange(!!e.detail.checked));
+  row.append(label, mini);
+  host.append(row);
+  function render() {
+    label.textContent = props.label;
+    appendShortcut(label, props.shortcut, props.shortcutActive, true);
+    mini.toggleAttribute("checked", !!props.checked);
+    mini.setAttribute("label", props.label);
+  }
+  render();
+  return {
+    update(next) {
+      props = next;
+      render();
+    },
+    destroy() {
       row.remove();
     }
   };
@@ -3561,7 +3628,7 @@ function mountSelectControl(host, initial) {
   trigger.append(label, right);
   row.append(trigger);
   host.append(row);
-  const options = () => props.options.map((option) => typeof option === "string" ? { value: option, label: option.replace(/\b\w/g, (c) => c.toUpperCase()) } : option);
+  const options = () => props.options.map((option) => typeof option === "string" ? { value: option, label: option.replace(/^\w/, (c) => c.toUpperCase()) /* Hyimg: sentence case, «As in the file» (P4 S-62) */ } : option);
   const menu = popupMenu(trigger, "dialkit-select-dropdown", "select", (popup) => {
     popup.replaceChildren(...options().map((option) => {
       const b = element4("button", "dialkit-select-option", option.label);
@@ -4243,6 +4310,15 @@ function mountControlRenderer(host, initial) {
       const shortcut = () => ({ shortcut: control.shortcut, shortcutActive: active2?.panelId === props.panelId && active2?.path === control.path });
       switch (control.type) {
         case "folder": {
+          // Hyimg patch (owner 2026-10-10 on round 16's r16-scrub.html, version A: «отлично, беру»): a folder of an X, a Y (and a Z) slider is one
+          // row of Hyimg's scrub fields under its title (review/ui/hy/scrub.js, <hy-scrub>): drag the letter, ⇧ ×10, ⌥ ×0.1, a click types
+          const kids = control.children ?? [];
+          if (kids.length >= 2 && kids.length <= 3 && kids.every((k, i) => k.type === "slider" && k.label === "XYZ"[i])) {
+            const vec = mountVec(target, { title: control.label, items: kids.map((k) => ({ label: k.label, min: k.min, max: k.max, step: k.step, value: () => props.values[k.path],
+              change: (v) => DialStore.updateValue(props.panelId, k.path, v) })) });
+            mounted.push({ update: vec.update, destroy: vec.destroy });
+            break;
+          }
           const folder = mountFolder(target, { title: control.label, defaultOpen: control.defaultOpen });
           mounted.push({
             update() {
@@ -4262,7 +4338,7 @@ function mountControlRenderer(host, initial) {
           mount2(mountTextControl, () => ({ label: control.label, value: value(), placeholder: control.placeholder, onChange: change }));
           break;
         case "select":
-          mount2(mountSelectControl, () => ({ label: control.label, value: value(), options: control.options ?? [], onChange: change }));
+          mount2(control.seg ? mountMicroSeg : mountSelectControl, () => ({ label: control.label, value: value(), options: control.options ?? [], onChange: change }));
           break;
         case "color":
           mount2(mountColorControl, () => ({ label: control.label, value: value(), onChange: change }));

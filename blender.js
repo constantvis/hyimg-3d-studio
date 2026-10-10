@@ -25,6 +25,9 @@ export const bridgeApi = plugin => async (body, raw) => {
   const j = await r.json().catch(() => ({ error: r.statusText })); if (!r.ok || j.error && !j.job) throw new Error(j.error || r.statusText); return j;
 };
 
+// a bridge error as the person reads it (P4 S-39): the bridge's known words in the board's language, a path in it as its file name only
+const tidyErr = (t, m) => { m = String(m || ""); const k = { "Blender not found in /Applications": 1, "Blender closed": 1 }; if (k[m]) return t(m);
+  return m.replace(/(?:\/private)?\/(?:var|tmp|Users|Volumes)\/[^\s:'"),]+/g, p => p.split("/").pop()); };
 export function attachBlender(L, { HY, t, plugin }) {
   if (!studioAngle(L.e.doc, L.camId())) return null;
   const api = bridgeApi(plugin);
@@ -79,7 +82,12 @@ export function attachBlender(L, { HY, t, plugin }) {
   const keyNow = side => JSON.stringify([mode(), lookChoice(), L.camId(), camNow(), Math.round(item().w / item().h * 1000), look && look.key,
     L.look ? L.look.key(side === "A" ? item().compare : undefined) : ""]);
   const comparing = () => !!(L.look && item().compare);
-  const say = (text, sticky) => { st.textContent = text; st.hidden = !text; clearTimeout(st._t); if (text && !sticky) st._t = setTimeout(() => { st.hidden = true; }, 4000); };
+  // the line says how Blender is doing, and round 15's LED before it (owner 2026-10-09 on r15-micro.html, «render»: ui/hy/led.js) shows it
+  // at a glance: blinking in the Studio's pink while a frame is on its way, steady when it is there, a ring when it failed or stopped
+  const say = (text, sticky, led = sticky ? "busy" : "on") => {
+    st.replaceChildren(); if (text) { const l = document.createElement("hy-led"); l.setAttribute("state", led); st.append(l, document.createTextNode(text)); }
+    st.hidden = !text; clearTimeout(st._t); if (text && !sticky) st._t = setTimeout(() => { st.hidden = true; }, 4000);
+  };
   const setLookLabel = () => {
     const a = studioAngle(L.e.doc, L.camId()), own = a ? a.look : "?";
     const [cur, pic] = lookSel.options;
@@ -113,7 +121,7 @@ export function attachBlender(L, { HY, t, plugin }) {
     const body = { action: "preview", scene: L.path, camera: L.camId(), cam: camFor(), w: item().w, h: item().h, engine: mode(), look: lookChoice(), card: L.id,
       ...(L.look ? L.look.body(side === "A" ? item().compare : undefined) : {}) };
     let r;
-    try { r = await api(body); } catch (e) { if (job === my) say(t("Blender: {e}", { e: e.message }), true); return; }
+    try { r = await api(body); } catch (e) { if (job === my) say(t("Blender: {e}", { e: e.message }), true, "off"); return; }
     my.id = r.job; let seen = 0;
     say(side === "A" ? t("Blender: A · {name}…", { name: L.look.nameOf(item().compare) }) : t("Blender: preparing the frame…"), true);
     while (job === my && !dead) {
@@ -133,7 +141,7 @@ export function attachBlender(L, { HY, t, plugin }) {
           if (l.step + 1 === l.steps && side !== "A") keepStill(blob);
         } catch (e) { /* the next poll tries again */ }
       }
-      if (!["building", "rendering"].includes(s.state)) { if (s.state === "error") say(t("Blender: {e}", { e: s.error }), true); break; }
+      if (!["building", "rendering"].includes(s.state)) { if (s.state === "error") say(t("Blender: {e}", { e: tidyErr(t, s.error) }), true, "off"); break; }
       await sleep(POLL_MS);
     }
     my.done = true;
@@ -172,7 +180,7 @@ export function attachBlender(L, { HY, t, plugin }) {
     if (!okJob) return false;
     const my = okJob; okJob = null; progress(false, 0);
     try { if (my.id) await api({ action: "cancel", job: my.id }); } catch (e) { /* gone already */ }
-    say(t("Render stopped"), false); return true;
+    say(t("Render stopped"), false, "off"); return true;
   }
   async function ok() {
     if (okJob) return;
@@ -181,13 +189,13 @@ export function attachBlender(L, { HY, t, plugin }) {
     // at the card's output size, W × H px of the Scene panel (engine.js L.outSize, owner 2026-10-07)
     try { r = await api({ action: "final", scene: L.path, camera: L.camId(), cam: camFor(), w: item().w, h: item().h, res: L.outSize ? L.outSize() : undefined, look: lookChoice(), card: L.id,
       ...(L.look ? L.look.body() : {}) }); }
-    catch (e) { okJob = null; progress(false, 0); HY.toast(t("Blender: {e}", { e: e.message })); return; }
+    catch (e) { okJob = null; progress(false, 0); HY.toast(t("Blender: {e}", { e: tidyErr(t, e.message) }), "error"); return; }
     my.id = r.job; const t0 = Date.now();
     while (okJob === my && !dead) {
       progress(true, (Date.now() - t0) / 1000);
       let s; try { s = await api({ action: "job", job: my.id }); } catch (e) { break; }
       if (s.state === "done" && s.saved) { expect = Math.max(5, s.elapsed); place(s); break; }
-      if (!["building", "rendering", "saving"].includes(s.state)) { if (s.state === "error") HY.toast(t("Blender: {e}", { e: s.error })); break; }
+      if (!["building", "rendering", "saving"].includes(s.state)) { if (s.state === "error") HY.toast(t("Blender: {e}", { e: tidyErr(t, s.error) }), "error"); break; }
       await sleep(500);
     }
     if (okJob === my) { okJob = null; progress(false, 0); }
@@ -202,7 +210,7 @@ export function attachBlender(L, { HY, t, plugin }) {
       if (!hit.length) break;
       x = Math.max(...hit.map(r => r.x + r.w)) + gap;
     }
-    const id = HY.addPicture(s.saved.path, s.saved.ar, x, y, w);
+    const id = HY.addPicture(s.saved.path, s.saved.ar, x, y, w); if (L.made) L.made.add(id);   // the session's own (P4 S-01)
     if (it.grade && HY.board.items[id]) HY.board.items[id].grade = JSON.parse(JSON.stringify(it.grade));   // the card's colour grade goes with its render as a property, the file is not graded
     HY.commit(before, t("3D: Blender frame {path} beside the card", { path: s.saved.path }));   // at «Done» part of the session's one step
     HY.toast(t("Saved {path} ({s} s), it is beside the card", { path: s.saved.path, s: s.elapsed }));

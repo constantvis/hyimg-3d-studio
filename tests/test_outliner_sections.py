@@ -272,7 +272,7 @@ def test_a_section_squeezes_to_what_is_active_or_selected_in_it(owner, engine):
         browser, page, frame, errors = open_board(p, engine, owner)
         open_editor(frame, "c"); frame.wait_for_function("() => document.querySelectorAll('.m3l .row[data-cam]').length === 18", timeout=30000); settle(frame)
         # a camera in the middle of the list is the active one
-        frame.dblclick(".m3l .row[data-cam=c09]"); frame.wait_for_timeout(800); settle(frame)
+        frame.click(".m3l .row[data-cam=c09] > svg"); frame.wait_for_timeout(800); settle(frame)   # its icon (a double click renames, P4 S-45)
         assert frame.evaluate("() => board.items.c.camera") == "c09"
         # a light picked, then the lower handle pushed all the way up: Lights keeps the picked light's row
         frame.click(".m3l .row[data-u]:has-text('Fill')"); frame.wait_for_timeout(400); settle(frame)

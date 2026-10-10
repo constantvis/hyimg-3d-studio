@@ -17,14 +17,18 @@ import { createDialKit, createDialRoot } from "./vendor/dialkit/index.js";   // 
 import { setT as sceneWords } from "./scene.js";
 import { translator } from "./lang.js";   // English or Russian, as the board is set (owner 2026-10-06)
 import { attachBlender, studioAngle, bridgeApi } from "./blender.js";   // a studio's scene in Blender: three.js · EEVEE · Cycles and «Render» on a plate at the card (owner 2026-10-06)
-import { initHistory, itemFields, remember, settle, undo, undoState, historyTab } from "./history.js";   // ⌘Z, ↶ ↷ and History (2026-10-07)
+import { initHistory, itemFields, remember, settle, undo, undoState, historyTab, shotTaken } from "./history.js";   // ⌘Z, ↶ ↷ and History (2026-10-07)
 import { initTools, tools } from "./tools.js";   // each tool its own drag, the camera on ⌥ / Space / the middle button (2026-10-07)
-import { initView, viewOf, sharedKey, putVersion, askCancel, cancelled, changedSince, originalCamera, syncCamera } from "./view.js";   // the card's view, Save, Cancel
+import { initView, viewOf, putVersion, askCancel, cancelled, changedSince, originalCamera, syncCamera, sharedKey } from "./view.js";   // the card's view, Save, Cancel
+import { writeScene, writeUi, openingBoard, boardDiffers } from "./view.js";   // Save waits for the file, Cancel keeps others' work (P4 2026-10-10)
 import { layout as layoutSecs, drag as dragSecs, fold as foldSecs, reset as resetSecs } from "./sections.js";   // the layer list's sections as one stack
 import { outSize, atLong, keepShape, ratioKey, reshape, PRESETS } from "./frame.js";   // the card's frame and output size, set in the Scene panel
 import { drawFrame, warmGhost } from "./ghost.js";   // the frame with its highlight: the pick seen whole through what is in front of it (2026-10-07)
 import { lightPane as lightPaneOf } from "./lights.js";   // a light's panel, its temperature and softness (2026-10-07)
 import { attachLook } from "./variants.js";   // «Свет и материалы»: the card's variant of light and materials, A/B (owner 2026-10-07)
+import { outlinerMicro, camLed, scrubSize, oneLine, holdText } from "./micro.js";   // round 15's micro UI, round 16's scrub (owner 2026-10-09/10), one-line fields
+import { sizeKeys, searchKeys, treeRename } from "./fields.js";   // Esc, ↵, Tab by Hyimg's one rule in W and H, the search, a row's rename (P4 2026-10-10)
+import { attachAnn } from "./annot.js";   // annotations tied to the scene's objects and layers, pins in the view (owner 2026-10-09, round 15)
 
 const TYPE = "model3d";
 const SHOTS = "3d/shots";
@@ -48,9 +52,6 @@ const LIGHT_W = { area: 20, spot: 30, point: 10, sun: 3 };
 const LIGHT_NAMES = { area: "Area light", spot: "Spotlight", point: "Point light", sun: "Sun" };   // through t()
 const SLOW_MS = 120, STOP_MS = 300, POSTER_SLOW_MS = 1200;   // a frame of the editor: lower the quality, then stop and ask; a poster: refresh rarely
 // the frame of a card: free, or locked to a ratio (width:height); the same choice as the bar the canvas shows over the card
-// the studio's keys in the Hint bar (Hyimg ui/hy/keyhint.js, place "top"): the camera (tools.js), ⌘↵ saves and leaves (onKey below)
-// (owner 2026-10-09 on round 12's «⌥ / Space Orbit ⌘↵ Save»: «вот это отлично, забираю»)
-const KEYHINT = [{ id: "orbit", keys: ["alt", "space"], t: "Orbit" }, { id: "save", keys: ["mod+enter"], t: "Save" }];
 const RATIOS = ["1:1", "4:5", "5:4", "3:4", "4:3", "2:3", "3:2", "9:16", "16:9"];   // with t("Free") first in the list
 
 let HY, renderer;
@@ -204,6 +205,7 @@ export async function refreshScene(path) {
 }
 export async function placeCardsFor(path, ids) { const e = await entry(path); return placeCards(path, e, ids); }
 export const isLive = id => !!live && (id === undefined || live.id === id);
+export const liveUnsaved = () => !!live && changedSince(live);   // a browser asks before it unloads it (Hyimg ui/modes.js unsaved)
 export const histInfo = () => live && { hi: live.hi, steps: live.hist.map(h => h.label), pressed: live.pressed, waiting: !!live.hmT || !!live.hmWhat };   // for the tests
 // for the tests: which tool the editor is in, what its gizmo does, what is picked and what is under the mouse
 const nameOf = n => n ? (n.userData.id || n.name || true) : null;
@@ -227,6 +229,7 @@ async function placeCards(path, e, ids) {
   const todo = ids.filter(c => !have.has(c) && e.doc.cameras.some(x => x.id === c)); if (!todo.length) return [];
   const r = e.doc.render || { x: 1600, y: 2000 }, w = 420, h = Math.round(w * r.y / r.x), c = HY.viewCenter(), before = HY.snap(), out = [];
   todo.forEach((cam, i) => { const id = HY.uid("m"); HY.board.items[id] = { type: TYPE, scene: path, camera: cam, view: viewOf(e.doc.cameras.find(x => x.id === cam)), x: Math.round(c.x - (todo.length * (w + 40)) / 2 + i * (w + 40)), y: Math.round(c.y - h / 2), w, h }; out.push(id); });   // its own view from the start
+  if (live && live.path === path) out.forEach(x => live.made.add(x));   // the studio's own: its Cancel takes them away (view.js openingBoard)
   HY.commit(before, todo.length === 1 ? t("3D: camera card") : t("3D: {n} camera cards", { n: todo.length })); HY.select(out);
   return out;
 }
@@ -244,7 +247,7 @@ const UI_JS = { slider: () => window.hySlider, icons: () => window.HY_TOOL_IC, s
 const loadUI = name => UI_JS[name]() ? Promise.resolve() : (loadUI[name] = loadUI[name] || new Promise(ok => { const s = document.createElement("script"); s.src = `/ui/${name}.js`; s.onload = s.onerror = () => ok(); document.head.appendChild(s); }));
 async function goLive(id) {
   await Promise.all(Object.keys(UI_JS).map(loadUI));
-  if (live) stopLive();
+  if (live) { await stopLive(); if (live) return; }   // the open one saves first; refused, it stays open (P4 S-04)
   let it = HY.board.items[id]; const el0 = [...document.querySelectorAll(".plg")].find(x => x.dataset.id === id); if (!it || !el0) return;
   try { await entryOf(id, it); } catch (err) { if (err.heavy) HY.toast(t("3D: {why}. First “Load” on the card", { why: heavyText(err.heavy) })); else HY.toast("3D: " + err.message); return; }
   if (!it.scene) {   // an older card becomes a scene file
@@ -273,7 +276,7 @@ async function goLive(id) {
   const ac = new AbortController(), on = { signal: ac.signal };
   const startDoc = tidy(JSON.parse(JSON.stringify(e.doc)));   // what «Сбросить» takes things back to: the scene and the card at the opening
   live = { id, el, e, path, view, cam, orbit, tc, ac, on, start: { doc: startDoc, key: stateKey(noUi(startDoc)), item: JSON.parse(JSON.stringify(HY.board.items[id])) }, sel: null, hov: null, tool: "select", hl: HY.pref("m3.hl", "ghost"), open: new Set(), raw: false, tab: 0, kit: null,
-    sceneOpen, rawOpen, icons: new Map(), before: HY.snap(), mark: HY.steps ?? -1, hist: [], hi: -1, pressed: false, busy: false, scale: 1, times: [], paused: false, allowSlow: false };
+    sceneOpen, rawOpen, icons: new Map(), before: HY.snap(), mark: HY.steps ?? -1, made: new Set(), hist: [], hi: -1, pressed: false, busy: false, scale: 1, times: [], paused: false, allowSlow: false };
   const L = live, camId = () => HY.board.items[id].camera || e.doc.active_camera;
   L.camId = camId;
 
@@ -317,6 +320,7 @@ async function goLive(id) {
   L.recam = () => { syncCam(); L.redraw(); };
   L.ui = buildUI(L);
   try { L.look = attachLook(L, { HY, t, api: bridgeApi(PLUGIN) }); } catch (err) { console.error(err); }   // a studio's scene: light and materials
+  try { L.ann = attachAnn(L, { HY, t, THREE, unitOf, head, pick: n => pick(L, n, true), esc, ico }); } catch (err) { console.error(err); }   // annot.js
   try { L.blender = attachBlender(L, { HY, t, plugin: PLUGIN }); } catch (err) { console.error(err); }   // only a scene with scene.studio gets it
   L.bimg = el.querySelector(":scope > img.m3bimg");   // Blender's frame, when it is shown the view draws only the ghost over it
   if (L.bimg) {
@@ -368,8 +372,8 @@ function head(unit, n) {
   return n;
 }
 // what is picked, in the scene's terms
-function picked(L) {
-  const n = L.sel; if (!n) return { kind: null };
+function picked(L, n = L.sel) {
+  if (!n) return { kind: null };
   if (n.userData.cam) return { kind: "camera", id: n.userData.cam, node: n };
   const u = unitOf(n); if (!u) return { kind: null };
   if (u.userData.kind === "light") return { kind: "light", id: u.userData.id, node: u, unit: u };
@@ -455,7 +459,7 @@ function setTool(L, t) { L.tool = t; (L.ui.bar || L.ui.root).querySelectorAll("[
 function guard(L, ms) {
   L.times.push(ms); if (L.times.length > 3) L.times.shift(); if (L.times.length < 3) return;
   const avg = L.times.reduce((a, b) => a + b, 0) / 3;
-  if (avg > SLOW_MS && L.scale > 0.34) { L.scale = L.scale > 0.6 ? 0.5 : 0.33; L.times = []; HY.toast(t("3D: a frame takes {ms} ms, the preview got coarser", { ms: Math.round(avg) })); return; }
+  if (avg > SLOW_MS && L.scale > 0.34) { L.scale = L.scale > 0.6 ? 0.5 : 0.33; L.times = []; HY.toast(t("3D: a frame takes {ms} ms, the preview got coarser", { ms: Math.round(avg) }), "info", { key: "m3slow" }); return; }
   if (avg > STOP_MS && !L.allowSlow) pause(L, avg);
 }
 function pause(L, ms, why) {
@@ -472,37 +476,35 @@ function pause(L, ms, why) {
 // truth for what it shows), the scene file is written only when what the cards share changed (objects, lights, world, other cameras), its
 // before and after kept as versions so the board's undo and history bring the scene back with the card (sceneRev), and the session is
 // one step on the board. Cancel: the scene in memory, the card and the board as they were at the opening, and scene.json as it was
-function stopLive(keep = true) {
-  if (!live) return;
+async function stopLive(keep = true) {
+  if (!live || live.saving) return;
   const L = live; settle(L);
-  const lost = !keep && changedSince(L), d = L.e.doc, cid = L.camId(), card = HY.board.items[L.id], cam = (d.cameras || []).find(x => x.id === cid);
-  let wrote = null;
+  const d = L.e.doc, cid = L.camId(), card = HY.board.items[L.id], cam = (d.cameras || []).find(x => x.id === cid);
+  // the scene is written first and waited for (P4 S-04): refused, the studio stays open with everything in it
+  let wrote = false;
+  if (keep && sharedKey(d, cid) !== sharedKey(L.sceneOpen, cid)) { L.saving = true; wrote = await writeScene(L); L.saving = false; if (!wrote || live !== L) return; }
+  const lost = !keep && changedSince(L);
   if (keep && card && cam) card.view = viewOf(cam);
-  if (keep && sharedKey(d, cid) !== sharedKey(L.sceneOpen, cid)) wrote = save(L.path, true, true);
   live = null;
   L.ac.abort();   // every listener this session put on the shared canvas
   clearInterval(L.rsI);
   if (L.themeObs) L.themeObs.disconnect();
-  if (L.kit) L.kit.destroy(); if (L.dk) L.dk.destroy(); if (L.blender) L.blender.dispose(); if (L.look) L.look.dispose();
+  if (L.kit) L.kit.destroy(); if (L.dk) L.dk.destroy(); if (L.blender) L.blender.dispose(); if (L.look) L.look.dispose(); if (L.ann) L.ann.dispose(keep, keep ? d : L.sceneOpen);
   L.orbit.dispose(); L.tc.detach(); L.view.scene.remove(L.tc.getHelper()); L.tc.dispose();
   if (L.kh) L.kh.hide(); L.view.helpers.clear(); if (HY.dock) HY.dock(null); L.ui.root.remove(); L.unplace(); L.el.querySelectorAll(".m3pause").forEach(x => x.remove()); renderer.domElement.remove(); L.el.classList.remove("plg-live"); document.body.classList.remove("m3edit");
   if (HY.full) HY.full(false);
   if (!keep) return cancelled(L, lost);
-  // the scene's versions: the file at the opening and the one written now, named by their rev; every card of the scene says which it
-  // shows (sceneRev), the step's «before» the opening's, so ⌘Z on the board and a board version bring the scene back (canvas.js restored)
-  let before = L.before;
+  // one step on the board (owner 2026-10-07), its «before» the board now with the studio's own cards as opened (P4 S-22: ⌘Z took others'
+  // work too). The scene's versions by rev; each card of the scene says which it shows (sceneRev): ⌘Z brings the scene back (canvas.js)
+  if (HY.squash && L.mark >= 0) HY.squash(L.mark);
+  const before = openingBoard(L);
   if (wrote) {
-    const rev0 = (L.sceneOpen && L.sceneOpen.rev) || 0, rev1 = d.rev, o = JSON.parse(before);
+    const rev0 = (L.sceneOpen && L.sceneOpen.rev) || 0, rev1 = d.rev;
     if (L.rawOpen != null) putVersion(L.path, rev0, L.rawOpen);
     putVersion(L.path, rev1, L.e.raw);
-    for (const [k, x] of Object.entries(HY.board.items)) if (x.type === TYPE && x.scene === L.path) { x.sceneRev = rev1; if (o.items[k]) o.items[k].sceneRev = rev0; }
-    before = JSON.stringify(o);
+    for (const [k, x] of Object.entries(HY.board.items)) if (x.type === TYPE && x.scene === L.path) { x.sceneRev = rev1; if (before.items[k]) before.items[k].sceneRev = rev0; }
   }
-  // the session is one step on the board (owner 2026-10-07): the board's steps made while it was open (the card's camera, background,
-  // frame, a snapshot or a render beside it) give way to one, from the opening; nothing changed on the board, no step
-  if (HY.squash && L.mark >= 0) HY.squash(L.mark);
-  const was = JSON.parse(before), now = JSON.parse(HY.snap());
-  if (JSON.stringify([was.items, was.groups]) !== JSON.stringify([now.items, now.groups])) HY.commit(before, t("3D: scene saved")); else HY.render();
+  if (boardDiffers(before, JSON.parse(HY.snap()))) HY.commit(JSON.stringify(before), t("3D: scene saved")); else HY.render();
   // the board redraws a plugin's card only when its item changes, and edits live in the scene file: the cards of this scene are
   // redrawn here (2026-10-03: after «Готово» the card kept the view from before the edit)
   repaint(L.path, true);
@@ -565,12 +567,17 @@ async function addThing(L, what) {
   await L.view.apply(doc); L.changed("add", true); L.reload();
   if (what !== "camera") pick(L, LIGHT_W[what] ? L.view.units.get(id).obj : L.view.units.get(id).obj, true);
 }
-async function removeThing(L, id) {
-  const doc = L.e.doc, k = kindOf(doc, id); if (!k) return;
-  if (k === "cameras" && doc.cameras.length < 2) { HY.toast(t("The last camera can't be deleted")); return; }
-  doc[k] = doc[k].filter(x => x.id !== id); doc.removed = [...new Set([...(doc.removed || []), id])];
-  if (k === "cameras") { const it = HY.board.items[L.id]; if (it.camera === id) { const before = HY.snap(); it.camera = doc.cameras[0].id; HY.commit(before, t("3D: camera deleted")); } if (doc.active_camera === id) doc.active_camera = doc.cameras[0].id; }
-  L.sel = null; await L.view.apply(doc); L.changed("remove", true); L.reload();
+async function removeThing(L, ids) {   // one id or several (the chosen rows), one step
+  const doc = L.e.doc; let n = 0;
+  for (const id of [].concat(ids)) {
+    const k = kindOf(doc, id); if (!k) continue;
+    if (k === "cameras" && doc.cameras.length < 2) { HY.toast(t("The last camera can't be deleted")); continue; }
+    doc[k] = doc[k].filter(x => x.id !== id); doc.removed = [...new Set([...(doc.removed || []), id])]; n++;
+    if (k !== "cameras") continue;
+    const it = HY.board.items[L.id]; if (it.camera === id) { const before = HY.snap(); it.camera = doc.cameras[0].id; HY.commit(before, t("3D: camera deleted")); }
+    if (doc.active_camera === id) doc.active_camera = doc.cameras[0].id;
+  }
+  if (!n) return; L.sel = null; L.multi = null; await L.view.apply(doc); L.changed("remove", true); L.reload();
 }
 function setCamera(L, cid) { const before = HY.snap(); HY.board.items[L.id].camera = cid; HY.commit(before, t("3D: card camera")); L.sel = null; L.reload(); remember(L, "camera"); }
 // the card's frame changed (its edges, the ratio bar, the list): the scene's render size for Blender follows the card being edited
@@ -644,7 +651,7 @@ function coordSet(x, k) {
 }
 const coordVals = x => { const c = coordCfg(x), v = {}; for (const f of [K.pos, K.rot]) { v[f] = {}; for (const a of "XYZ") v[f][a] = c[f][a][0]; } return v; };
 const FITS = () => [{ value: "AUTO", label: t("Auto") }, { value: "HORIZONTAL", label: t("Horizontal") }, { value: "VERTICAL", label: t("Vertical") }];
-const camMoreCfg = c => ({ [K.sensor]: [c.sensor || 36, 4, 100, 0.1], [K.fit]: { type: "select", options: FITS(), default: c.fit || "AUTO" },
+const camMoreCfg = c => ({ [K.sensor]: [c.sensor || 36, 4, 100, 0.1], [K.fit]: { type: "select", seg: true, options: FITS(), default: c.fit || "AUTO" },
   [K.shiftX]: [(c.shift || [0, 0])[0], -1, 1, 0.01], [K.shiftY]: [(c.shift || [0, 0])[1], -1, 1, 0.01],
   [K.near]: [Math.round((c.clip || [0.01, 100])[0] * 1000) / 10, 0.1, 1000, 0.1], [K.far]: [(c.clip || [0.01, 100])[1], 1, 10000, 1], _collapsed: true });
 function camMoreSet(c, k) {
@@ -719,12 +726,17 @@ async function shoot(L) {
   try {
     const before = HY.snap(), x0 = it.x + it.w + Math.round(it.w * 0.05);
     const b = await HY.snapshot(blobs.beauty, "3d-scene", SHOTS, Object.assign({ prompt: t("3D sketch of a scene for generation: camera {cam}, lens {lens} mm; objects by masks: {what}", { cam: c.name, lens, what }), pass: "вид" }, common));
-    const m = await HY.snapshot(blobs.mask, "3d-mask", SHOTS, Object.assign({ prompt: t("object masks for {path}: {what}", { path: b.path, what }), pass: "маски", of: b.path }, common));
-    const d = await HY.snapshot(blobs.depth, "3d-depth", SHOTS, Object.assign({ prompt: t("depth for {path}: white is near, black is far", { path: b.path }), pass: "глубина", of: b.path }, common));
-    const bw = it.h * b.ar, bid = HY.addPicture(b.path, b.ar, x0, it.y, bw);
+    // each picture on the board as soon as its file is written: a pass refused later leaves no file without its card (P4 S-44)
+    const bw = it.h * b.ar, bid = HY.addPicture(b.path, b.ar, x0, it.y, bw), ids = [bid], sh = it.h / 2 - 8;
     if (it.grade && HY.board.items[bid]) HY.board.items[bid].grade = JSON.parse(JSON.stringify(it.grade));   // the view is the card's picture: it keeps the card's grade, the file is not graded
-    const sh = it.h / 2 - 8; HY.addPicture(m.path, m.ar, x0 + bw + 16, it.y, sh * m.ar); HY.addPicture(d.path, d.ar, x0 + bw + 16, it.y + sh + 16, sh * d.ar);
-    HY.commit(before, t("3D: snapshot, masks and depth beside it"));   // a step now; at «Done» it is part of the session's one step
+    try {
+      const m = await HY.snapshot(blobs.mask, "3d-mask", SHOTS, Object.assign({ prompt: t("object masks for {path}: {what}", { path: b.path, what }), pass: "маски", of: b.path }, common));
+      ids.push(HY.addPicture(m.path, m.ar, x0 + bw + 16, it.y, sh * m.ar));
+      const d = await HY.snapshot(blobs.depth, "3d-depth", SHOTS, Object.assign({ prompt: t("depth for {path}: white is near, black is far", { path: b.path }), pass: "глубина", of: b.path }, common));
+      ids.push(HY.addPicture(d.path, d.ar, x0 + bw + 16, it.y + sh + 16, sh * d.ar));
+    } catch (err) { HY.toast(t("Snapshot not saved: {e}", { e: err.message }), "error"); }
+    // one step of the board, and of the Studio's ⌘Z; the pictures stay after Cancel, they are what was made (history.js shotTaken, P4 S-44)
+    HY.commit(before, t("3D: snapshot, masks and depth beside it")); shotTaken(L, ids);
   } catch (err) { HY.toast(t("Snapshot not saved: {e}", { e: err.message })); }
 }
 
@@ -780,8 +792,8 @@ function buildUI(L) {
       <button class="m3reset" data-a="reset" title="${t("Reset all: the scene and the card as they were when the studio opened")}" aria-label="${t("Reset all")}" disabled>${hyIcon("reset", 0, 2)}</button><span class="sep"></span>
       <button class="wide" data-a="shot" title="${t("View, masks and depth beside the card · P")}">${ico("shot")}${t("Snapshot")}</button></div>
     <div class="m3title hy-plate" data-hyui><b>${t("3D scene")}</b><code class="fp"></code></div>
-    <div class="m3p m3l hy-blk" data-hyui><div class="lhd"><label class="hy-search">${LIB_FIND}<input data-q type="search" placeholder="${t("Search layers")}" aria-label="${t("Search layers")}" autocomplete="off" spellcheck="false"></label></div>
-      <div class="opts"><label title="${t("Show the files' wrappers without geometry")}"><input type="checkbox" data-raw> ${t("all nodes")}</label></div>
+    <div class="m3p m3l hy-blk" data-hyui><div class="lhd"><label class="hy-search">${LIB_FIND}<input data-q type="search" placeholder="${t("Search layers")}" aria-label="${t("Search layers")}" autocomplete="off" spellcheck="false"><hy-scope data-scope></hy-scope></label>
+      <hy-minitoggle data-raw title="${t("Show the files' wrappers without geometry")}">${t("All nodes")}</hy-minitoggle></div>
       <div class="tr">${SECS.map((k, i) => `${i ? `<div class="msp" data-before="${k}"></div>` : ""}<section class="ms" data-s="${k}" hidden><div class="msh hy-sh" role="button" aria-expanded="true" title="${t("Fold or unfold")}"><span class="mtg hy-sh-cv">${CHEV()}</span><span class="mst">${t(SEC_NAME[k])}</span><span class="cnt hy-sh-n"></span></div><div class="msb"><div class="msi"></div></div></section>`).join("")}<div class="none" hidden>${t("Nothing found")}</div></div></div>
     <div class="m3p m3r hy-blk" data-hyui><div class="m3tabs hy-bh" role="tablist"><button class="m3tab hy-bh-tab on" data-tab="props" role="tab" aria-selected="true">${ico("properties", "")}${t("Properties")}</button><button class="m3tab hy-bh-tab" data-tab="hist" role="tab" aria-selected="false">${ico("history", "")}${t("History")}</button></div><div class="ih"></div><div class="inf"></div><div class="dk"></div><div class="m3hist" role="list" hidden></div></div>
     <div class="m3x" data-hyui><svg class="axes" viewBox="0 0 90 90" aria-label="${t("Axes: drag turns the camera, a click on an axis puts the camera along it")}"></svg></div>`;
@@ -789,7 +801,7 @@ function buildUI(L) {
   // Cancel and Save stand top right, Hyimg's one place for a Studio's session actions (ui/hy/actions.js; owner 2026-10-09: «кнопки Done у
   // нас всегда стандартизированы справа вверху, а не внизу»); a click reaches onBar below by its data-a, the keys stay Esc and ⌘↵
   root.appendChild(Object.assign(document.createElement("hy-studio-actions"), { actions: [
-    { id: "cancel", label: t("Cancel"), title: t("Close without saving · Esc"), key: "Esc" },
+    { id: "cancel", label: t("Cancel"), title: t("Close without saving") },   // Esc keeps the work (owner decision 2026-10-10, S-27)
     { id: "save", label: t("Save"), title: t("Save the scene and the card's view and close · ⌘↵"), key: "⌘↵", primary: true }] }));
   const q = s => root.querySelector(s), doc = () => L.e.doc;
   q(".m3title .fp").textContent = L.path; q(".m3title").title = L.path;
@@ -824,7 +836,7 @@ function buildUI(L) {
   const onHide = ev => { requestAnimationFrame(placePlate); if (ev.detail && ev.detail.on) { L.hov = null; markTree(); } L.need(); };
   document.addEventListener("hy:hideui", onHide);
   L.unplace = () => { removeEventListener("resize", place); mo.disconnect(); crumbRo.disconnect(); document.removeEventListener("hy:hideui", onHide); };
-  L.dk = createDialRoot({ mode: "inline", target: q(".dk"), theme: pageTheme() });
+  L.dk = createDialRoot({ mode: "inline", target: q(".dk"), theme: pageTheme() }); oneLine(q(".dk"), { content: K.ai, primary: () => stopLive(true) });   // one-line text fields (P4 S-14, S-25)
 
   // -- the tree, as in Spline: thin lines show nesting, eye and lock appear on hover. A wrapper without geometry and with one child
   // folds into the row below it unless «все узлы» is on; the search keeps matching rows and the rows they sit in
@@ -856,26 +868,27 @@ function buildUI(L) {
     const name = label || n.userData.shown || n.userData.label || n.name || last.name || (last.isMesh ? t("mesh") : t("node"));
     const sub = last.isMesh ? (last.userData.base && last.userData.base.mat.name ? last.userData.base.mat.name : "") : chain.length > 1 && last.name !== name ? last.name : "";
     const cnt = kids.length ? meshCount(last) : 0, key = keyOf(n, rec), col = navCols()[navOf()[key]] ? navOf()[key] : inh;
-    rows.push(`<div class="row${isSel ? " sel" : ""}${within ? " in" : ""}${hidden ? " hidden" : ""}${gh ? " ghid" : ""}${kids.length && !open ? " closed" : ""}${tint(col)}" data-u="${n.uuid}" data-k="${esc(key)}" title="${esc(chain.map(c => c.name || "·").join(" › "))}">
+    rows.push(`<div class="row hy-hovrow${isSel ? " sel" : ""}${within ? " in" : ""}${hidden ? " hidden" : ""}${gh ? " ghid" : ""}${kids.length && !open ? " closed" : ""}${tint(col)}" data-u="${n.uuid}" data-k="${esc(key)}" title="${esc(chain.map(c => c.name || "·").join(" › "))}">
       ${guides.map(g => `<i class="g${g.on ? " on" : ""}${tint(g.c)}"></i>`).join("")}${kids.length ? `<button class="chev" data-open="${n.uuid}" aria-label="${t("Expand")}">${CHEV()}</button>` : '<span class="chev"></span>'}${ico(hasIco(kind) ? kind : "mesh")}
       <span class="nm">${esc(name)}${n.userData.mirror || last.userData.mirror ? `<small>${t("mirror")}</small>` : ""}${sub ? `<small>${esc(sub)}</small>` : ""}</span>${cnt > 1 ? `<span class="cnt">${cnt}</span>` : ""}
-      <span class="acts">${rec ? `<button data-lock="${rec.id}" class="${locked ? "keep" : ""}" aria-label="${t("Lock")}">${lockIco(locked, rec.id)}</button>` : gl ? `<span class="inhlk" title="${t("Locked by its group")}">${lockIco(true, "")}</span>` : ""}<button data-eye="${n.uuid}" class="${hidden || gh ? "keep" : ""}${gh ? " inh" : ""}" aria-label="${t("Hide or show")}"${gh ? ` title="${t("Hidden by its group")}"` : ""}>${ico(hidden || gh ? "off" : "eye")}</button></span></div>`);
+      <span class="acts">${rec ? `<button data-lock="${rec.id}" class="hy-ri${locked ? " keep" : ""}" aria-label="${t("Lock")}">${lockIco(locked, rec.id)}</button>` : gl ? `<span class="inhlk" title="${t("Locked by its group")}">${lockIco(true, "")}</span>` : ""}<button data-eye="${n.uuid}" class="hy-ri${hidden || gh ? " keep" : ""}${gh ? " inh" : ""}" aria-label="${t("Hide or show")}"${gh ? ` title="${t("Hidden by its group")}"` : ""}>${ico(hidden || gh ? "off" : "eye")}</button></span></div>`);
     // the lines under this row's children take its colour, and so do the children that have none of their own
     if (kids.length && open) kids.forEach((c, i) => row(rows, c, [...guides, { on: i < kids.length - 1, c: col }], undefined, undefined, col, ih || hidden, il || !!locked));
     return true;
   };
+  const scope = outlinerMicro(L, root, { q, chainOf, kidsOf, tree: () => tree() });   // «All nodes» and the search's count (micro.js)
   const secEl = Object.fromEntries(SECS.map(k => [k, q(`.ms[data-s="${k}"]`)]));
   const tree = () => {
-    const d = doc(), cardCam = L.camId(), nav = navOf(), out = { objects: [], lights: [], cameras: [], materials: [] }, top = { objects: 0, lights: 0, cameras: 0, materials: 0 };
+    const d = doc(), cardCam = L.camId(), nav = navOf(), out = { objects: [], lights: [], cameras: [], materials: [] }, top = { objects: 0, lights: 0, cameras: 0, materials: 0 }, led = camLed(t);
     for (const o of d.objects) { const u = L.view.units.get(o.id); if (u && row(out.objects, u.obj, [], o.name, o)) top.objects++; }
     for (const l of d.lights) { const u = L.view.units.get(l.id); if (u && row(out.lights, u.obj, [], l.name, l)) top.lights++; }
     // a camera's lock as an object's (owner 2026-10-07: «и чтобы блокировать можно было камеры таким же образом»): locked, its icon is not
     // picked in the view, so it is not dragged there by mistake; the list still picks it
-    for (const c of d.cameras) if (!query || c.name.toLowerCase().includes(query)) { top.cameras++; out.cameras.push(`<div class="row${(L.sel && L.sel.userData.cam === c.id) || chosenIn([L.icons.get(c.id)]) ? " sel" : ""}${tint(navCols()[nav[c.id]] && nav[c.id])}" data-cam="${c.id}" data-k="${esc(c.id)}"><span class="chev"></span>${ico("camera")}<span class="nm">${esc(c.name)}</span>${c.id === cardCam ? `<span class="tag">${t("card")}</span>` : ""}<span class="acts"><button data-lock="${c.id}" class="${c.locked ? "keep" : ""}" aria-label="${t("Lock")}">${lockIco(!!c.locked, c.id)}</button></span></div>`); }
+    for (const c of d.cameras) if (!query || c.name.toLowerCase().includes(query)) { top.cameras++; out.cameras.push(`<div class="row hy-hovrow${(L.sel && L.sel.userData.cam === c.id) || chosenIn([L.icons.get(c.id)]) ? " sel" : ""}${tint(navCols()[nav[c.id]] && nav[c.id])}" data-cam="${c.id}" data-k="${esc(c.id)}"><span class="chev"></span>${ico("camera")}<span class="nm">${esc(c.name)}</span>${c.id === cardCam ? led : ""}<span class="acts"><button data-lock="${c.id}" class="hy-ri${c.locked ? " keep" : ""}" aria-label="${t("Lock")}">${lockIco(!!c.locked, c.id)}</button></span></div>`); }
     if (L.look) L.look.rows(out, top, query);   // the card's variant and the look's materials (variants.js)
     for (const k of SECS) { secEl[k].hidden = !out[k].length; secEl[k].querySelector(".msi").innerHTML = out[k].join(""); secEl[k].querySelector(".cnt").textContent = top[k] || ""; }
     q(".tr > .none").hidden = SECS.some(k => out[k].length);
-    L.lockGo = null; lay();
+    scope(d); L.lockGo = null; lay();
   };
 
   // -- the sections: each folds by its title (the app's chevron turns, the rows close with the app's curve), and the line between two open
@@ -929,23 +942,17 @@ function buildUI(L) {
     markCams();
   };
   // the active camera, the one the card looks through (owner 2026-10-07: «почему я не вижу, какая камера активна?»): its row is marked
-  // whatever is selected (a dot, its name at full contrast, the «card» chip); the selected row keeps the list's selection. A double click
-  // on another camera makes it the active one
+  // whatever is selected (its name at full contrast and round 15's LED after it); the selected row keeps the list's selection. A click on
+  // another camera's icon makes it the active one (a double click renames, as every row, P4 S-45)
   const markCams = () => {
     const act = L.camId();
     for (const r of tr.querySelectorAll(".row[data-cam]")) {
       const on = r.dataset.cam === act; r.classList.toggle("act", on);
-      r.title = on ? t("Active camera: the card looks through it") : t("Double-click: make it active");
+      r.title = on ? t("Active camera: the card looks through it") : t("A click on its icon: the card looks through it");
     }
   };
-  // two clicks on one camera's row, counted here: the first click redraws the list, so the browser's dblclick lands on a new row and is lost
-  let camClick = null;
-  tr.addEventListener("click", ev => {
-    const r = ev.target.closest(".row[data-cam]"); if (!r || ev.target.closest(".acts")) { camClick = null; return; }
-    const id = r.dataset.cam, now = performance.now(), twice = camClick && camClick.id === id && now - camClick.at < 450;
-    camClick = twice ? null : { id, at: now };
-    if (twice && id !== L.camId()) { ev.stopImmediatePropagation(); setCamera(L, id); }
-  }, true);
+  // a double click on a row's name renames it, a click on a camera's icon makes it the card's (fields.js, P4 S-45)
+  treeRename(L, tr, { t, setCamera: id => setCamera(L, id), primary: () => stopLive(true), rename: (id, v) => { const x = findAny(doc(), id); if (x) { x.name = v; L.view.apply(doc()).then(() => L.reload()); L.changed("rename", true); } } });
   const fold = k => {
     const m = measure(); secSt = foldSecs(m.list, secSt, m.H, k, m.o); saveSecs(); glide(); lay("fold");
   };
@@ -1039,7 +1046,7 @@ function buildUI(L) {
     const d = doc(), ui = d.ui = d.ui || {}, c = ui.colors = ui.colors || {};
     for (const key of keys) if (name) c[key] = name; else delete c[key];
     if (!Object.keys(c).length) delete ui.colors; if (!Object.keys(ui).length) delete d.ui;
-    save(L.path, true); tree();
+    writeUi(L); tree();   // into the file now, the studio's Save and Cancel keep it (P4 S-20: the colours were never written)
   };
   // Esc closes the menu (the board's own rule) and nothing more: the editor's Esc would drop the pick too
   let ctxMine = false;
@@ -1068,8 +1075,7 @@ function buildUI(L) {
   });
   q(".tr").addEventListener("mouseover", ev => { const r = ev.target.closest(".row[data-u]"); const n = r ? byUuid(r.dataset.u) : null; if (n !== L.hov) { L.hov = n; L.need(); } });
   q(".tr").addEventListener("mouseleave", () => { L.hov = null; L.need(); });
-  root.addEventListener("change", ev => { if (ev.target.matches("[data-raw]")) { L.raw = ev.target.checked; tree(); } });
-  q("[data-q]").addEventListener("input", ev => { query = ev.target.value.trim().toLowerCase(); tree(); });
+  q("[data-q]").addEventListener("input", ev => { query = ev.target.value.trim().toLowerCase(); tree(); }); searchKeys(q("[data-q]"), () => { query = ""; tree(); });
 
   // -- the inspector: no tabs, it shows what is picked; with nothing picked, the scene (the card's camera, frame, background, world)
   let syncing = false, dialN = 0;
@@ -1083,7 +1089,7 @@ function buildUI(L) {
     // DialKit hands changes over in batches: the last value of a drag can arrive while the editor itself writes the panel (quiet below).
     // Dropped then, it was applied at the next touch of any control (owner 2026-10-04: the transparency moved the camera; it was the end
     // of a «Широкий ↔ изометрия» drag). It waits and is applied right after; apply() acts only on what differs from what it knows
-    L.kit.subscribe(v => { if (syncing) pend = v; else apply(v); }, false);
+    L.kit.subscribe(v => { if (syncing) pend = v; else if (!holdText(v, apply)) apply(v); }, false);   // a name typed: once, at ↵ (micro.js)
     L.applyNow = apply;
   };
   let pend = null;
@@ -1235,7 +1241,8 @@ function buildUI(L) {
       const [W, H] = resLink ? keepShape(it, k, v) : k === "w" ? [v, s[1]] : [s[0], v];
       if (W !== s[0] || H !== s[1]) setRes(W, H); else sync();
     };
-    ins.forEach(x => { x.addEventListener("change", () => typed(x)); x.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); typed(x); x.blur(); } else if (e.key === "Escape") { x.value = ""; sync(); x.blur(); } e.stopPropagation(); }); });
+    sizeKeys(ins, typed, sync, () => stopLive(true));   // ↵, Esc, ↑ ↓ and Tab (fields.js, P4 S-56)
+    scrubSize(ins, typed, sync);   // the W and H letters drag the size (micro.js)
     link.addEventListener("click", () => { resLink = !resLink; HY.setPref("m3.reslink", resLink ? "1" : "0"); sync(); });
     box.querySelectorAll("[data-long]").forEach(b => b.addEventListener("click", () => { const it = HY.board.items[L.id], [W, H] = atLong(+b.dataset.long, it.w / it.h), s = L.outSize(); if (W !== s[0] || H !== s[1]) setRes(W, H); }));
     flip.addEventListener("click", () => HY.frame(L.id, "flip"));
@@ -1274,8 +1281,8 @@ function buildUI(L) {
       ...CB.cfg,
       [K.bg]: { [K.transparent]: bg.transparent, [K.color]: bg.color, [K.transparency]: [100 - bg.opacity, 0, 100, 1] },   // the owner reads it as see-through: 0 is a solid background (2026-10-04)
       [K.world]: { [K.color]: hexOf(w.color || [0.18, 0.18, 0.18]), [K.strength]: [w.strength ?? 1, 0, 5, 0.05], _collapsed: true },
-      [K.highlight]: { type: "select", options: [{ value: "ghost", label: t("Ghost") }, { value: "outline", label: t("Outline") }], default: L.hl },
-      [K.pull]: { [K.pivot]: { type: "select", options: PIVOTS.map(p => ({ value: p.value, label: t(p.label) })), default: HY.pref("m3.pull.pivot", PULL.pivot) }, [K.gel]: [+HY.pref("m3.pull.gel", PULL.gel), 1, 10, 0.5], _collapsed: true },
+      [K.highlight]: { type: "select", seg: true, options: [{ value: "ghost", label: t("Ghost") }, { value: "outline", label: t("Outline") }], default: L.hl },
+      [K.pull]: { [K.pivot]: { type: "select", seg: true, options: PIVOTS.map(p => ({ value: p.value, label: t(p.label) })), default: HY.pref("m3.pull.pivot", PULL.pivot) }, [K.gel]: [+HY.pref("m3.pull.gel", PULL.gel), 1, 10, 0.5], _collapsed: true },
       ...camActs(c, {}),
       [K.newcam]: { type: "action" }, [K.allcams]: { type: "action" },
     }, v => {
@@ -1330,8 +1337,6 @@ function buildUI(L) {
     bar.classList.remove("m3p"); root.appendChild(menu); bar.addEventListener("click", onBar); bar.addEventListener("pointerdown", e => e.stopPropagation());
     HY.dock(bar);
   }
-  // the camera's keys and how to leave, top centre as the studio opens, gone once one is used (the Hint bar, Hyimg's ui/hy/keyhint.js)
-  if (window.hyKeyHint) L.kh = window.hyKeyHint.show(document.getElementById("dock") || L.el, "3d", KEYHINT, { place: "top" });   // until learned
 
   // -- the axes: Blender's colours (x red, y green, z blue up). Drag turns the card's camera around what it looks at, a click on an
   // axis flies it there in 0.4 s (owner 2026-10-03: the circle must turn and the jump be smooth); angles go on a sphere, so a top view
@@ -1471,26 +1476,31 @@ export function init(hy, hooks) {
   FIN_NAME = Object.fromEntries(Object.entries(FIN_WORDS).map(([k, w]) => [k, t(w)])); FIN_KEY = Object.fromEntries(Object.entries(FIN_NAME).map(([k, v]) => [v, k]));
   const dkCss = document.createElement("link"); dkCss.rel = "stylesheet"; dkCss.href = new URL("./vendor/dialkit/styles.css", import.meta.url).href; document.head.appendChild(dkCss);
 }
-export { goLive, newScene };
+export { goLive, newScene, stopLive };
 export function onKey(e) {
   if (!live) return false;
   const L = live, k = e.key.toLowerCase(), mod = e.metaKey || e.ctrlKey;
   // ⌘Z ⇧⌘Z are the studio's steps wherever the focus is after a gesture (a slider, a row of the list); a field being typed in keeps its own
   // (the board does not hand those keys over then). A DialKit control kept ⌘Z before (owner 2026-10-07: «cmd + z не работает в 3D studio»)
   if (mod && !e.altKey && (k === "z" || k === "я")) { e.preventDefault(); undo(L, e.shiftKey ? 1 : -1); return true; }
-  if (document.activeElement && document.activeElement.closest(".dialkit-root")) return true;   // a DialKit control has the keys
-  if (e.key === "Escape") {   // Esc climbs from a layer to its object, then drops the pick, then closes the editor
-    if (L.blender && L.blender.escape()) { e.preventDefault(); return true; }   // a Blender render running: Esc stops it first
-    e.preventDefault(); const p = picked(L);
+  // a control of the panels with the focus keeps no key from the studio (P4 S-15, the board asks hyTyping): Esc only lets go of it
+  const ae = document.activeElement; if (e.key === "Escape" && ae && ae !== document.body && L.ui.root.contains(ae)) { e.preventDefault(); ae.blur(); return true; }
+  if (L.ann && L.ann.key(e)) return true;   // annot.js: C, Esc
+  if (e.key === "Escape") {   // a press, a step: a Blender render, the «+» menu (S-42), layer to object, the pick; the last keeps the work (S-27)
+    e.preventDefault(); const p = picked(L), mn = document.querySelector(".m3menu:not([hidden])");
+    if (L.blender && L.blender.escape()) return true; if (mn) { mn.hidden = true; return true; }
     if (p.kind === "layer") { let n = p.node.parent; while (n && n !== p.unit && head(p.unit, n) !== n) n = n.parent; pick(L, n && n !== p.unit.children[0] ? n : p.unit); }
-    else if (p.kind || L.lmSel) pick(L, null); else askCancel(L);
+    else if (p.kind || L.lmSel) pick(L, null); else stopLive(true);
     return true;
   }
   // ⌘↵ saves, as in the image studio; a plain Enter never does (owner 2026-10-07: «просто Enter можно случайно нажать или применить, например,
   // при изменении чисел в параметрах»): in a number field it only takes the value
   if (e.key === "Enter") { if (mod && !e.altKey && !e.shiftKey) { e.preventDefault(); stopLive(true); } return true; }
   if (e.key === " ") { e.preventDefault(); return true; }   // Space + drag turns the camera (tools.js), not the board's hand
-  if ((e.key === "Backspace" || e.key === "Delete")) { const p = picked(L); if (p.kind && p.kind !== "layer") { e.preventDefault(); removeThing(L, p.id); } return true; }
+  if (e.key === "Backspace" || e.key === "Delete") {   // every chosen row, not only the first (P4 S-21)
+    const ids = (L.multi && L.multi.length > 1 ? L.multi : [L.sel]).map(n => picked(L, n)).filter(p => p.kind && p.kind !== "layer").map(p => p.id);
+    if (ids.length) { e.preventDefault(); removeThing(L, ids); } else if (picked(L).kind === "layer") HY.toast(t("A layer is part of its model's file: hide it with its eye"), "info", { key: "m3layer" }); return true;
+  }
   if (!mod && (k === "p" || k === "з")) { e.preventDefault(); shoot(L); return true; }
   const tool = { v: "select", м: "select", g: "translate", п: "translate", r: "rotate", к: "rotate", s: "scale", ы: "scale", t: "smart", е: "smart" }[k];
   if (!mod && tool) { e.preventDefault(); setTool(L, tool); return true; }

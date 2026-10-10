@@ -78,7 +78,7 @@ def test_the_active_camera_one_camera_block_and_the_actions_say_what_they_do(tmp
             # the Scene panel: the card's camera, the block's controls in order
             rows = frame.evaluate(ROWS)
             assert active(rows) == ["c00"] and not any(r["sel"] for r in rows), rows
-            assert "Active camera" in rows[0]["title"] and "Double-click" in rows[1]["title"], rows
+            assert "Active camera" in rows[0]["title"] and "icon" in rows[1]["title"], rows   # a click on its icon (P4 S-45)
             scene_block = frame.evaluate(BLOCK)
             assert scene_block[:len(WANT)] == WANT and scene_block[-1] == "Camera: more", scene_block
 
@@ -126,8 +126,8 @@ def test_the_active_camera_one_camera_block_and_the_actions_say_what_they_do(tmp
             # 2. «Make active»: View 4 is the card's camera, the mark moves
             frame.locator(".m3r .dk .dialkit-button", has_text="Make active").click(); frame.wait_for_timeout(800)
             assert active(frame.evaluate(ROWS)) == ["c03"] and frame.evaluate("() => board.items.c.camera") == "c03"
-            # 3. a double click on another camera row makes it active
-            frame.dblclick(".m3l .row[data-cam=c01]"); frame.wait_for_timeout(800)
+            # 3. a click on another camera row's icon makes it active (a double click renames it, P4 S-45)
+            frame.click(".m3l .row[data-cam=c01] > svg"); frame.wait_for_timeout(800)
             assert active(frame.evaluate(ROWS)) == ["c01"] and frame.evaluate("() => board.items.c.camera") == "c01"
             # 4. the Camera select at the top of the camera block (the Scene panel's and a camera's alike) does the same
             trig = frame.locator(".m3r .dialkit-select-trigger", has_text="Camera").first

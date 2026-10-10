@@ -42,7 +42,8 @@ export function materialRows(L, S, { query, sel, over, t, esc }) {
     const dot = `<hy-swatch ${hex ? `color="${hex}" style="--hy-sw:${hex}"` : "none"} tabindex="-1" aria-hidden="true"></hy-swatch>`;
     const tip = esc(m.name) + (ov ? " · " + esc(t("changed in this variant")) : "");
     return `<div class="row${on ? " sel" : ""}${ov ? " m3ov" : ""}" data-mat="${esc(m.name)}" title="${tip}"><span class="chev"></span>${dot}`
-      + `<span class="nm">${esc(m.name)}</span><span class="cnt">${m.n}</span></div>`;
+      + `<span class="nm">${esc(m.name)}${ov ? `<i class="hy-dot" title="${esc(t("changed in this variant"))}"></i>` : ""}</span>`   // round 15's change dot (ui/hy)
+      + `<span class="cnt">${m.n}</span></div>`;
   });
 }
 
