@@ -10,6 +10,8 @@ A plugin for [Hyimg](https://github.com/constantvis/Hyimg), the local Figma + Li
 - Double click a card to open it in 3D Studio: a layer tree with search, transform tools, lights, cameras and materials, in the spirit of Spline. Several cards can show the same scene from different cameras.
 - In the studio ⌥-drag or the middle button turns the camera, Space-drag or the right button moves the view, the wheel zooms. ⌘K (or Actions in the dock) lists every command with a search. Point at Undo or Redo to see which step it takes.
 - Snapshot renders the view, object masks and depth to `3d/shots/`, each with a json of the scene, camera and mask legend, ready to feed an image model.
+- Whatever the plugin makes writes how long it took and where it ran, in Hyimg's fields (`seconds`, `compute`, see Hyimg's `docs/data.md`): snapshots,
+  Blender's final frames («Blender Cycles · GPU · 128 samples») and STEP files FreeCAD converts. Hyimg's Info card shows them as Time and Compute.
 - Models come from the project's `3d/models/<id>/model.json`; a new scene starts with a neutral stand-in.
 - A new card asks for a file: Open file… (glb, gltf, obj, stl, fbx, and STEP or IGES, which FreeCAD converts once in the background), the media library with its 3D filter, or one of the recent files. Previews turn under the pointer.
 - Heavy scenes are guarded: the card weighs a scene before loading it.

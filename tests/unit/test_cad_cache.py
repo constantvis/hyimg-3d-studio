@@ -81,7 +81,8 @@ def test_a_key_without_a_glb_is_not_ready():
 
 def test_a_ready_glb_reports_its_size_and_the_conversions_numbers():
     put(K1, b"x" * 120, {"seconds": 2.5, "mode": "gui", "version": "1.0.2", "parts": 3, "faces": 40, "diagonal_mm": 64.0, "deviation_percent": 0.05, "secret": 1})
-    assert cad._ready(K1) == {"state": "ready", "key": K1, "bytes": 120, "seconds": 2.5, "mode": "gui", "version": "1.0.2", "parts": 3, "faces": 40, "diagonal_mm": 64.0}
+    assert cad._ready(K1) == {"state": "ready", "key": K1, "bytes": 120, "seconds": 2.5, "mode": "gui", "version": "1.0.2", "parts": 3, "faces": 40, "diagonal_mm": 64.0,
+                              "compute": "local · FreeCAD 1.0.2 · gui"}   # where it ran, in Hyimg's words (owner 2026-10-11)
 
 
 def test_a_ready_glb_with_an_unreadable_meta_is_still_ready():

@@ -145,14 +145,11 @@ def test_the_layer_list_sections_colours_and_the_title_plate(hy, engine):
         frame.click(".m3l .row[data-cam]", button="right"); frame.click("#ctx.open .msw button[data-color='']"); frame.wait_for_timeout(300)
         d = wait_file(scene, lambda d: len((d.get("ui") or {}).get("colors", {})) == 2)
         shot(page, f"3d-colours-{engine}")
-        # the title plate: a plate of the app's top row (Hyimg ui/look.css .hy-plate, 2026-10-07): on the crumb's middle line, right after it,
-        # as tall as the row's token and in the crumb's words (their weight and size are the row's rule, read from the crumb, not written here)
-        plate = frame.evaluate("""() => { const t = document.querySelector('.m3title'), p = t.getBoundingClientRect(), c = document.getElementById('crumb').getBoundingClientRect();
-          const cs = getComputedStyle(t), cr = getComputedStyle(document.getElementById('crumb')), de = getComputedStyle(document.documentElement);
-          return { dy: Math.abs((p.top + p.height / 2) - (c.top + c.height / 2)), dx: p.left - c.right, h: p.height, row: parseFloat(de.getPropertyValue('--hy-plate-h')),
-            r: cs.borderTopLeftRadius, font: cs.fontWeight + ' ' + cs.fontSize, crumb: cr.fontWeight + ' ' + cr.fontSize, plate: t.classList.contains('hy-plate'), text: t.textContent }; }""")
-        assert plate["dy"] <= 1.5 and 6 <= plate["dx"] <= 10 and plate["r"] == "999px" and plate["plate"] and plate["text"].startswith("3D scene"), plate
-        assert abs(plate["h"] - plate["row"]) <= 1 and plate["font"] == plate["crumb"], plate
+        # the scene's name: the crumb's last step (Hyimg ui/modes.js doc(), round 20 «Одна оболочка», 2026-10-11), the path in its tooltip;
+        # the plate «3D scene 3d/scenes/…» beside the crumb is gone
+        step = frame.evaluate("() => { const s = document.getElementById('cStudio'); return s && [s.textContent.trim(), s.title, s === document.getElementById('crumb').lastElementChild]; }")
+        assert step and step[0] == "3D scene" and step[1].endswith("/scene.json") and step[2], step
+        assert frame.locator(".m3title").count() == 0
         assert frame.locator(".m3l .lh").count() == 0, "the title left the panel"
         # the colours come back after the editor closes and opens again (they are the scene file's)
         page.keyboard.press("Meta+Enter"); frame.wait_for_function("() => !document.querySelector('.m3ui')", timeout=15000)
@@ -173,7 +170,7 @@ def test_hide_interface_takes_the_panels_and_the_view_shows_no_marks(hy, engine)
         frame.evaluate("() => localStorage.setItem('cv.m3.hl', 'outline')")
         open_editor(frame, cid)
         frame.click(".m3l .row[data-u]:has-text('Object')"); frame.wait_for_timeout(400)
-        assert frame.evaluate("() => ['.m3l', '.m3r', '.m3x', '.m3title'].every(s => document.querySelector(s).hasAttribute('data-hyui'))")
+        assert frame.evaluate("() => ['.m3l', '.m3r', '.m3x'].every(s => document.querySelector(s).hasAttribute('data-hyui'))")
         pink = """() => { const c = document.querySelector('canvas.m3live'), g = document.createElement('canvas'); g.width = c.width; g.height = c.height; const x = g.getContext('2d'); x.drawImage(c, 0, 0);
           const d = x.getImageData(0, 0, g.width, g.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] < 140 && d[i + 2] > 120 && d[i + 2] < 220) n++; return n; }"""
         frame.evaluate("() => import('/plugins/3d/engine.js').then(m => m.nudge(m.liveInfo().id))"); frame.wait_for_timeout(400); go_on(frame)
@@ -181,7 +178,7 @@ def test_hide_interface_takes_the_panels_and_the_view_shows_no_marks(hy, engine)
         assert before > 50, ("the picked object is outlined in pink while the interface shows", before)
         page.keyboard.press("Meta+Period"); frame.wait_for_timeout(600)
         assert frame.evaluate("() => document.documentElement.classList.contains('hy-hideui')")
-        OP = "() => ['.m3l', '.m3r', '.m3x', '.m3title'].map(s => +getComputedStyle(document.querySelector(s)).opacity)"
+        OP = "() => ['.m3l', '.m3r', '.m3x', '#crumb'].map(s => +getComputedStyle(document.querySelector(s)).opacity)"
         frame.wait_for_function(f"() => ({OP})().every(o => o < 0.05)", timeout=8000)   # a software-GL frame can be slow: the board's animation runs on
         assert frame.evaluate(pink) == 0, "the bare view: no pick or hover marks"
         shot(page, f"3d-hidden-{engine}")

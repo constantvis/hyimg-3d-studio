@@ -645,7 +645,9 @@ def save_final(j):
                    "angle_samples": angle.get("samples"), "angle_exposure": angle.get("exposure")},
         "camera": ev.get("camera"), "camera_settings": ev.get("camera_settings"), "exact_camera": j["exact_camera"],
         "resolution": ev["res"], "samples": ev["samples"], "exposure": ev.get("exposure"), "engine": "Cycles", "device": ev.get("device"),
-        "seconds": ev.get("seconds"), "time": time.strftime("%Y-%m-%d %H:%M:%S"), "scene": j["scene"], "scene_camera": j["camera_id"],
+        "seconds": ev["seconds"] if ev.get("seconds") is not None else round(time.time() - j["started"], 2), "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "compute": f"local · Blender Cycles · {ev.get('device') or req.get('device') or 'CPU'} · {ev['samples']} samples",   # owner 2026-10-11, Hyimg runmeta
+        "scene": j["scene"], "scene_camera": j["camera_id"],
         "colour": st.get("colour"), "view": angle.get("view"), "request": rq,
         "variant": V.sidecar(j.get("variant"), j.get("vplan")), "variant_applied": ev.get("variant"),
         "reproduce": f"'{exe}' -b --factory-startup -P '{SERVER}' -- --once '<этот json>' --out <файл.png>",

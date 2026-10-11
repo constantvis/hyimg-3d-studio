@@ -30,7 +30,9 @@ export function changedSince(L) {
 export function askCancel(L) {
   if (getLive() !== L) return;
   if (!changedSince(L)) return stop(false);
-  const act = keep => () => { if (getLive() === L) stop(keep); }, name = (L.path.match(/([^/]+)\/scene\.json$/) || [])[1] || t("3D scene");
+  // the name: Hyimg's crumb step says it (ui/modes.js doc(), engine.js liveDoc); this one is for a Hyimg without it, never the folder (S-07)
+  const d = (L.e && L.e.doc) || {};
+  const act = keep => () => { if (getLive() === L) stop(keep); }, name = d.name || t("3D scene");
   import("/ui/confirm.js").then(m => m.hyLeave ? m.hyLeave({ name, discard: act(false), save: act(true) })
     : m.hyConfirm({ title: t("Close without saving?"), note: t("The changes made since the last save will be lost."), ok: t("Discard"), cancel: t("Keep editing"), onOk: act(false),
       save: { label: t("Save"), run: act(true) } })).catch(() => {   // a Hyimg without ui/confirm.js

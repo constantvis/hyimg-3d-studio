@@ -83,7 +83,10 @@ def _ready(key):
     except (OSError, ValueError): meta = {}
     try: os.utime(_glb(key))   # used now: the cache forgets what was used longest ago
     except OSError: pass
-    return {"state": "ready", "key": key, "bytes": os.path.getsize(_glb(key)), **{k: meta[k] for k in ("seconds", "mode", "version", "parts", "faces", "diagonal_mm") if k in meta}}
+    got = {k: meta[k] for k in ("seconds", "mode", "version", "parts", "faces", "diagonal_mm") if k in meta}
+    if got.get("version") or got.get("mode"):   # where it ran, Hyimg's one word for it (owner 2026-10-11: time, cost, compute of a 3D file too)
+        got["compute"] = " · ".join(x for x in ("local", f"FreeCAD {got.get('version') or ''}".strip(), str(got.get("mode") or "")) if x)
+    return {"state": "ready", "key": key, "bytes": os.path.getsize(_glb(key)), **got}
 
 
 def prune(keep=None):

@@ -211,6 +211,12 @@ export const histInfo = () => live && { hi: live.hi, steps: live.hist.map(h => h
 const nameOf = n => n ? (n.userData.id || n.name || true) : null;
 export const liveInfo = () => live && { id: live.id, tool: live.tool, mode: live.tc.mode, attached: !!live.tc.object, selected: nameOf(live.sel), hovered: nameOf(live.hov) };
 export const livePath = () => live ? live.path : null;
+// the open scene as people name it, for Hyimg's crumb step and leave question (ui/modes.js doc()): the scene's own name, the card's, else
+// «3D scene», as the card's Info names it; never the folder (studios audit S-07: «Save changes to “a”?»). The path is the step's tooltip
+export function liveDoc() {
+  if (!live) return null; const d = live.e.doc || {}, it = HY.board.items[live.id] || {};
+  return { name: d.name || it.name || t("3D scene"), path: live.path };
+}
 // for the tests and a selection of many to come: the objects, lights or layers with these ids (a unit's id, or a node's name) are the
 // view's pick, the first one the panels'; and one frame of the editor drawn now, its time in ms
 export function liveSelect(ids) {
@@ -717,12 +723,13 @@ async function shoot(L) {
   const it = HY.board.items[L.id], doc = L.e.doc, r = { x: it.w, y: it.h }, long = 1600;   // the card's own frame
   const W = r.x >= r.y ? long : Math.round(long * r.x / r.y), H = r.x >= r.y ? Math.round(long * r.y / r.x) : long;
   const cid = it.camera || doc.active_camera, c = findAny(doc, cid), cam = L.view.camera(cid, W, H); cam.layers.set(0);
-  const hid = hideEditor(L.e), blobs = {};
+  const hid = hideEditor(L.e), blobs = {}, t0 = performance.now();
   for (const pass of ["beauty", "mask", "depth"]) { L.view.render(cam, W, H, pass, it.bg); blobs[pass] = await new Promise(ok => renderer.domElement.toBlob(ok, "image/png")); }
   hid(); L.redraw();
   const objs = doc.objects.filter(o => !o.hidden && !o.shadow_only), legend = objs.map((o, i) => ({ mask: L.view.units.get(o.id) ? L.view.units.get(o.id).mask : MASKS[i % MASKS.length], name: o.name, ai: o.ai || "" }));
   const lens = Math.round(c.lens), what = legend.map(m => `${m.mask} ${m.ai || m.name}`).join("; ");
   const common = { model: t("Hyimg 3D (three.js r180, preview, not a Blender render)"), route: "hyimg-3d", scene: L.path, scene_rev: doc.rev, camera: c, render: { x: W, y: H },
+    seconds: Math.round(performance.now() - t0) / 1000, compute: "local · three.js r180 · WebGL",   // the three passes (owner 2026-10-11, Hyimg runmeta)
     background: it.bg || { world: true }, masks: legend, reproduce: `в Blender: blender -b --python <Hyimg-3d>/blender/hyimg_scene.py -- apply <библиотека>/${L.path} --fresh --save-as <файл.blend>, камера ${c.name}${it.bg && it.bg.transparent ? ", Film › Transparent" : ""}` };
   try {
     const before = HY.snap(), x0 = it.x + it.w + Math.round(it.w * 0.05);
@@ -792,7 +799,6 @@ function buildUI(L) {
       <button class="m3ic hy-dkb" data-a="redo" title="${t("Redo · ⇧⌘Z")}" aria-label="${t("Redo")}" disabled>${hyIcon("redo", 0, 2)}</button>
       <button class="m3reset hy-dkb" data-a="reset" title="${t("Reset all: the scene and the card as they were when the studio opened")}" aria-label="${t("Reset all")}" disabled>${hyIcon("reset", 0, 2)}</button><span class="sep"></span><span class="dgrp" data-dk="view"></span><span class="sep"></span>
       <button class="wide" data-a="shot" title="${t("View, masks and depth beside the card · P")}">${ico("shot")}${t("Snapshot")}</button><span data-dk="acts"></span></div>
-    <div class="m3title hy-plate" data-hyui><b>${t("3D scene")}</b><code class="fp"></code></div>
     <div class="m3p m3l hy-blk" data-hyui><div class="lhd"><label class="hy-search">${LIB_FIND}<input data-q type="search" placeholder="${t("Search layers")}" aria-label="${t("Search layers")}" autocomplete="off" spellcheck="false"></label>
       <hy-minitoggle data-raw title="${t("Show the files' wrappers without geometry")}">${t("All nodes")}</hy-minitoggle></div>
       <div class="tr">${SECS.map((k, i) => `${i ? `<div class="msp" data-before="${k}"></div>` : ""}<section class="ms" data-s="${k}" hidden><div class="msh hy-sh" role="button" aria-expanded="true" title="${t("Fold or unfold")}"><span class="mtg hy-sh-cv">${CHEV()}</span><span class="mst">${t(SEC_NAME[k])}</span><span class="cnt hy-sh-n"></span></div><div class="msb"><div class="msi"></div></div></section>`).join("")}<div class="none" hidden>${t("Nothing found")}</div></div></div>
@@ -805,19 +811,6 @@ function buildUI(L) {
     { id: "cancel", label: t("Cancel"), title: t("Close without saving") },   // Esc keeps the work (owner decision 2026-10-10, S-27)
     { id: "save", label: t("Save"), title: t("Save the scene and the card's view and close · ⌘↵"), key: "⌘↵", primary: true }] }));
   const q = s => root.querySelector(s), doc = () => L.e.doc;
-  q(".m3title .fp").textContent = L.path; q(".m3title").title = L.path;
-  // the scene's title is a plate in the top band (owner 2026-10-06: «3D scene 3d/scenes/…» on top, as a group's title when you are zoomed
-  // into the group): the board's stuck group title (canvas.html stickTitles, #gsticky .gst), on the crumb's middle line right after it. It
-  // comes in from the left panel's top, where the title stood, and glides along when the crumb grows or the library moves it
-  const plate = q(".m3title"); let plateAt = null;
-  const placePlate = () => {
-    if (document.documentElement.classList.contains("hy-hideui")) return;   // hidden with the rest: it leaves from where it stands
-    const c = document.getElementById("crumb"), cb = c && c.getClientRects().length ? c.getBoundingClientRect() : null;
-    const l = parseFloat(root.style.getPropertyValue("--l")) || 12, x = Math.round(cb && cb.width ? cb.right + 8 : l), y = Math.round(cb && cb.width ? cb.top + (cb.height - plate.offsetHeight) / 2 : 12);
-    if (plateAt && (plateAt[0] !== x || plateAt[1] !== y)) glidePlate();
-    plateAt = [x, y]; plate.style.transform = `translate(${x}px, ${y}px)`;
-  };
-  const glidePlate = () => { plate.classList.add("glide"); clearTimeout(plate._g); plate._g = setTimeout(() => plate.classList.remove("glide"), 320); };
   const place = () => {   // inside the stage, right of the library panel, clear of the dock
     const r = HY.stage.getBoundingClientRect(), inset = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--inset")) || 0;
     root.style.setProperty("--l", (r.left + inset + 12) + "px"); root.style.setProperty("--r", (innerWidth - r.right + 12) + "px");
@@ -825,18 +818,14 @@ function buildUI(L) {
     // our interface»): under the crumb plate and the window buttons, which stay visible and clickable
     const crumb = document.getElementById("crumb"), band = crumb && crumb.getClientRects().length ? crumb.getBoundingClientRect().bottom + 8 : 0;
     root.style.setProperty("--t", Math.max(r.top + 12, band) + "px"); root.style.setProperty("--b", (innerHeight - r.bottom + 76) + "px");
-    if (plateAt) placePlate();
   };
   // the panels follow the window and the library's edge (--inset changes when the library folds or opens)
   const mo = new MutationObserver(place); mo.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
   place(); addEventListener("resize", place);
-  plate.style.transform = `translate(${parseFloat(root.style.getPropertyValue("--l")) || 12}px, ${parseFloat(root.style.getPropertyValue("--t")) || 12}px)`;   // where the panel's title stood
-  requestAnimationFrame(() => { glidePlate(); placePlate(); });
-  const crumbRo = new ResizeObserver(() => placePlate()), crumbEl = document.getElementById("crumb"); if (crumbEl) crumbRo.observe(crumbEl);
-  // ⌘. hides the interface (the board's :root.hy-hideui, the panels carry data-hyui): the plate goes with it, the view shows no marks (onHide)
-  const onHide = ev => { requestAnimationFrame(placePlate); if (ev.detail && ev.detail.on) { L.hov = null; markTree(); } L.need(); };
+  // ⌘. hides the interface (the board's :root.hy-hideui, the panels carry data-hyui): the view shows no marks (onHide)
+  const onHide = ev => { if (ev.detail && ev.detail.on) { L.hov = null; markTree(); } L.need(); };
   document.addEventListener("hy:hideui", onHide);
-  L.unplace = () => { removeEventListener("resize", place); mo.disconnect(); crumbRo.disconnect(); document.removeEventListener("hy:hideui", onHide); };
+  L.unplace = () => { removeEventListener("resize", place); mo.disconnect(); document.removeEventListener("hy:hideui", onHide); };
   L.dk = createDialRoot({ mode: "inline", target: q(".dk"), theme: pageTheme() }); oneLine(q(".dk"), { content: K.ai, primary: () => stopLive(true) });   // one-line text fields (P4 S-14, S-25)
 
   // -- the tree, as in Spline: thin lines show nesting, eye and lock appear on hover. A wrapper without geometry and with one child

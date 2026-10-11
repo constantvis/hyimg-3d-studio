@@ -68,7 +68,7 @@ def test_cancel_leaves_the_scene_the_card_and_the_board(tmp_path, engine):
             assert scene.read_bytes() == raw0, "nothing written while the studio is open"
             # changes: Cancel asks first, the image studio's dialog over everything; a newer note does not cover it, Esc keeps the studio
             page.click("hy-studio-actions [data-a=cancel]"); page.wait_for_selector("#hyConfirm.on", timeout=5000)
-            assert page.locator("#hyConfirm .hc-t").inner_text().strip() == "Сохранить изменения в «a»?"   # Hyimg's one question (S-26)
+            assert page.locator("#hyConfirm .hc-t").inner_text().strip() == "Сохранить изменения в «3D-сцена»?"   # Hyimg's one question (S-26), the crumb's name (S-07)
             page.evaluate("() => { HY.toast('Новая заметка поверх', 'info'); HY.toast('Еще одна', 'info'); }"); page.wait_for_timeout(400)
             b = page.locator("#hyConfirm [data-a=ok]").bounding_box()
             assert page.evaluate("([x, y]) => !!document.elementFromPoint(x, y).closest('#hyConfirm')", [b["x"] + b["width"] / 2, b["y"] + b["height"] / 2])

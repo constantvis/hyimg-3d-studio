@@ -186,7 +186,6 @@ export function register(hy) {
     /* grey while its still loads, like a picture (owner 2026-10-04); a see-through card turns clear once the still is there */
     .plg[data-type=${TYPE}] { background: var(--raise); } .plg[data-type=${TYPE}].lo.see { background: transparent; }
     .plg[data-type=${TYPE}]:has(img.m3[src^="data:image/png"]) { background: transparent; }
-    body.m3edit #info { display: none !important; }
     /* Blender's frame over the live view and its line of state (blender.js) */
     .plg-live img.m3bimg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; pointer-events: none; z-index: 1; }
     .plg-live .m3bst { position: absolute; left: calc(8px / var(--z)); bottom: calc(8px / var(--z)); z-index: 3; max-width: calc(100% - 16px / var(--z)); overflow: hidden; text-overflow: ellipsis;
@@ -269,7 +268,7 @@ export function register(hy) {
     .m3p.hy-blk { border-color: var(--hy-pline); border-radius: var(--hy-blk-r); box-shadow: var(--plate-sh); }   /* a block (ui/hy/block.css), its depth by «Тени» */
     /* ⌘. hides them with the board's interface (data-hyui: the board's hyUiOut / hyUiZoom around the window's centre, back with hyUiBack);
        the slide sends each toward its own edge */
-    .m3l { --hx: -16px; } .m3r { --hx: 18px; } .m3x { --hy: 16px; } .m3title { --hy: -16px; }
+    .m3l { --hx: -16px; } .m3r { --hx: 18px; } .m3x { --hy: 16px; }
     :root[data-ui="studio"][data-theme="light"] .m3p { box-shadow: 0 14px 40px rgba(20,20,30,.12); }
     .m3t { top: var(--t); left: calc(var(--l) + 252px); right: calc(var(--r) + 292px); width: fit-content; margin-inline: auto; display: flex; align-items: center; gap: 2px; padding: 5px; }
     .m3t button { position: relative; width: 30px; height: 30px; border: 0; border-radius: var(--m3-r); background: none; color: var(--sub); display: grid; place-items: center; }
@@ -387,14 +386,7 @@ export function register(hy) {
     .m3r .m3hint { padding: 10px 14px 0; } .m3r .real { padding: 8px 14px 0; font-size: 11px; color: var(--dim); line-height: 1.5; word-break: break-all; }
     .m3x { position: fixed; z-index: 60; bottom: var(--b); left: calc(var(--l) + 252px); right: calc(var(--r) + 292px); width: fit-content; margin-inline: auto; }
     .m3x .axes { width: 90px; height: 90px; display: block; touch-action: none; } .m3x .ring { fill: color-mix(in srgb, var(--card) 88%, transparent); stroke: var(--line); transition: fill .15s; } .m3x .axes:hover .ring { fill: var(--raise); }
-    /* the scene's title in the top band: the board's stuck group title (canvas.html #gsticky .gst), on the crumb's line after it. A plate of
-       the app's top row (Hyimg ui/look.css .hy-plate, owner 2026-10-07: «breadcrumb area тоже разношерстная»): the crumb's height, glass,
-       shadow, corners and words; here only where it stands and how its two parts share it */
-    .m3title { position: fixed; left: 0; top: 0; z-index: 61; display: flex; align-items: center; gap: 8px; cursor: default; }
-    .m3title b { font-weight: inherit; color: var(--ink); flex: none; }
-    .m3title code { font: 400 12px ui-monospace, Menlo, monospace; color: var(--muted, var(--dim)); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-    .m3title.glide { transition: transform .3s cubic-bezier(.32,.72,0,1); }
-    body.m3edit #gsticky { visibility: hidden; }   /* a group's stuck title would sit where the scene's is */
+    body.m3edit #gsticky { visibility: hidden; }   /* a group's stuck title would sit over the crumb's step of the scene */
     body.m3edit #ctx { z-index: 70; }   /* the app's right-click menu opens over the editor's panels (the layer list's colours) */
     .m3x .ax circle { transition: r .12s; } .m3x .ax:hover circle { r: 10px; } .m3x text { font: 600 9px -apple-system, system-ui, sans-serif; fill: #0e0f11; text-anchor: middle; pointer-events: none; }`;
   document.head.appendChild(st);
@@ -441,6 +433,10 @@ export function register(hy) {
     title: t("3D Studio for the selected 3D card"), hint: t("Select a 3D card or enter one: 3D Studio opens for it"),
     hintStudio: t("Open a 3D card to use 3D Studio"),   // the tooltip while another Studio is open (owner decision 2026-10-10)
     isOpen: () => !!(E && E.isLive()),
+    // the shell (Hyimg ui/modes.js, round 20 «Одна оболочка», owner 2026-10-11: «беру»): the scene's step in the crumb with its name, the
+    // path in its tooltip, and the same name in the leave question (studios audit S-06, S-07: the plate «3D scene 3d/scenes/a/scene.json»
+    // and the question about «a», the scene's folder, are gone)
+    doc: () => (E && E.isLive() ? E.liveDoc() : null),
     unsaved: () => !!(E && E.liveUnsaved && E.liveUnsaved()),
     target: ids => ids.length === 1 && HY.board.items[ids[0]] && HY.board.items[ids[0]].type === TYPE ? ids[0] : null,
     enter: id => studio(id),
